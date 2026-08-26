@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  shipdeck:
+    build: .
+    container_name: shipdeck
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - AUTH_TYPE=none # Change to 'header' to enable Authelia or OIDC proxy protection
+    volumes:
+      # Mount the host Docker socket so ShipDeck can run docker commands on the host system
+      - /var/run/docker.sock:/var/run/docker.sock
+      
+      # Mount the configuration file for persistence
+      - ./hosts.json:/app/hosts.json
+      
+      # Optional: Mount your local projects directory inside the container if you want
+      # to deploy local projects. Set the path in the dashboard to /projects/your-project-folder.
+      # - /path/to/your/local/workspace:/projects
+    restart: unless-stopped
