@@ -120,7 +120,26 @@ const user = req.headers['remote-user'] || req.headers['x-forwarded-user'] || re
 
 ## 4. Running ShipDeck
 
-### Environment Settings
+### Option A: Running inside Docker (Recommended)
+
+Run ShipDeck seamlessly inside a lightweight Docker container. By mounting the host's Docker socket, the dashboard can command the host's local containers and compose files directly.
+
+1. **Verify your local settings** in `docker-compose.yml` (e.g., verifying port `3000` mapping, and setting `AUTH_TYPE` variable accordingly).
+2. **Start the ShipDeck application container**:
+   ```bash
+   docker compose up -d
+   ```
+3. **Persisted configurations**:
+   The dashboard automatically reads and writes to `hosts.json` in the current folder, which is mounted live into the container.
+4. **Deploying local projects**:
+   If running dashboard CLI commands (like `git pull`) inside local directories on your host system:
+   - Mount your codebase directories into the container using a compose volume (e.g. `- /var/www:/projects`).
+   - Setup the target host in the dashboard with an absolute path referring to the container's path (e.g., `/projects/my-node-app`).
+
+---
+
+### Option B: Running natively with Node.js
+
 You control the security mode using the `AUTH_TYPE` environment variable.
 
 1. **Development/Testing (Bypass Mode):**
