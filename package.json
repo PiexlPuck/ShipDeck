@@ -1,0 +1,15 @@
+{
+  "name": "docker-deployment-dashboard",
+  "version": "1.0.0",
+  "description": "Central deployment dashboard for Docker-based projects",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ssh2": "^1.15.0",
+    "ws": "^8.17.1"
+  },
+  "private": true
+}

@@ -1,0 +1,1336 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShipDeck | Central Docker Deployer</title>
+  <!-- Google Fonts: Inter & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap"
+    rel="stylesheet">
+  <!-- xterm.js CDN -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+
+  <style>
+    :root {
+      --bg-primary: #0a0f1d;
+      --bg-secondary: #131c31;
+      --bg-tertiary: #1b2641;
+      --accent-color: #3b82f6;
+      --accent-glow: rgba(59, 130, 246, 0.4);
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --success: #10b981;
+      --success-glow: rgba(16, 185, 129, 0.2);
+      --warning: #f59e0b;
+      --error: #ef4444;
+      --error-glow: rgba(239, 68, 68, 0.2);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --card-gradient: linear-gradient(135deg, rgba(19, 28, 49, 0.7) 0%, rgba(27, 38, 65, 0.5) 100%);
+      --sidebar-width: 320px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    header {
+      background: rgba(10, 15, 29, 0.8);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-color);
+      padding: 16px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 10;
+    }
+
+    h1,
+    h2,
+    h3,
+    .logo-text {
+      font-family: 'Outfit', sans-serif;
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-icon {
+      background: linear-gradient(135deg, var(--accent-color), #8b5cf6);
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: white;
+      box-shadow: 0 0 15px var(--accent-glow);
+    }
+
+    .logo-text {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      background: linear-gradient(to right, #ffffff, #a5b4fc);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .user-profile {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(255, 255, 255, 0.04);
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: 1px solid var(--border-color);
+    }
+
+    .user-avatar {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--accent-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: bold;
+      color: white;
+    }
+
+    .user-info {
+      font-size: 13px;
+    }
+
+    .user-username {
+      font-weight: 600;
+    }
+
+    .user-details {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* Dev Sim Style bar */
+    .dev-sim-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(245, 158, 11, 0.08);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      padding: 6px 14px;
+      border-radius: 20px;
+    }
+
+    .dev-sim-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--warning);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .dev-sim-select {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      color: var(--text-main);
+      font-size: 12px;
+      padding: 2px 8px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .dev-sim-select:focus {
+      outline: none;
+      border-color: var(--warning);
+    }
+
+    .main-container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Left Sidebar */
+    .sidebar {
+      width: var(--sidebar-width);
+      border-right: 1px solid var(--border-color);
+      background-color: rgba(19, 28, 49, 0.3);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow-y: auto;
+    }
+
+    .sidebar-header {
+      padding: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .sidebar-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: none;
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease-in-out;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background-color: var(--accent-color);
+      color: white;
+      box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background-color: #2563eb;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 15px rgba(59, 130, 246, 0.3);
+    }
+
+    .btn-secondary {
+      background-color: rgba(255, 255, 255, 0.05);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .btn-danger {
+      background-color: rgba(239, 68, 68, 0.1);
+      color: var(--error);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+
+    .btn-danger:hover:not(:disabled) {
+      background-color: var(--error);
+      color: white;
+    }
+
+    .host-list {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .host-item {
+      background: var(--card-gradient);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 16px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .host-item:hover {
+      border-color: rgba(59, 130, 246, 0.4);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .host-item.active {
+      border-color: var(--accent-color);
+      box-shadow: 0 0 15px var(--accent-glow);
+      background: rgba(59, 130, 246, 0.05);
+    }
+
+    .host-info-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .host-name {
+      font-weight: 600;
+      font-size: 15px;
+    }
+
+    .host-type-badges {
+      display: flex;
+      gap: 4px;
+    }
+
+    .host-badge {
+      font-size: 9px;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.08);
+      font-weight: bold;
+      color: var(--text-muted);
+    }
+
+    .host-badge.remote {
+      background: rgba(139, 92, 246, 0.15);
+      color: #c084fc;
+    }
+
+    .host-badge.perm-admin {
+      background: rgba(239, 68, 68, 0.15);
+      color: #fca5a5;
+    }
+
+    .host-badge.perm-user {
+      background: rgba(16, 185, 129, 0.15);
+      color: #a7f3d0;
+    }
+
+    .host-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .host-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .status-dot.online {
+      background-color: var(--success);
+      box-shadow: 0 0 8px var(--success-glow);
+      animation: pulse 2s infinite;
+    }
+
+    .status-dot.offline {
+      background-color: var(--error);
+      box-shadow: 0 0 8px var(--error-glow);
+    }
+
+    .status-dot.error {
+      background-color: var(--warning);
+      box-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
+    }
+
+    .status-dot.checking {
+      background-color: var(--text-muted);
+      animation: flash 1s infinite alternate;
+    }
+
+    @keyframes pulse {
+      0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 var(--success-glow);
+      }
+
+      70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+      }
+
+      100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+      }
+    }
+
+    @keyframes flash {
+      from {
+        opacity: 0.3;
+      }
+
+      to {
+        opacity: 1;
+      }
+    }
+
+    /* Right Main Panel */
+    .dashboard-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 32px;
+      overflow-y: auto;
+      gap: 32px;
+    }
+
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      gap: 16px;
+    }
+
+    .empty-state-icon {
+      font-size: 48px;
+      opacity: 0.3;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .selected-dns {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .selected-title {
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .selected-meta {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .action-row {
+      display: flex;
+      gap: 12px;
+      background: rgba(255, 255, 255, 0.02);
+      padding: 16px;
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+    }
+
+    /* Terminal Wrapper */
+    .terminal-container {
+      background: #020617;
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 16px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 380px;
+      position: relative;
+      box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5);
+    }
+
+    .terminal-container.active {
+      border-color: var(--accent-color);
+      box-shadow: 0 0 20px rgba(59, 130, 246, 0.15), inset 0 2px 10px rgba(0, 0, 0, 0.5);
+    }
+
+    .terminal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: 'Fira Code', monospace;
+    }
+
+    .terminal-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .terminal-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    #terminal {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* Setup / Edit Host Panel Overlay */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s ease;
+      z-index: 100;
+    }
+
+    .modal-overlay.open {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .modal-container {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      width: 520px;
+      max-width: 90vw;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+      transform: translateY(20px);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .modal-overlay.open .modal-container {
+      transform: translateY(0);
+    }
+
+    .modal-header {
+      padding: 24px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .close-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 20px;
+    }
+
+    .close-btn:hover {
+      color: var(--text-main);
+    }
+
+    .modal-body {
+      padding: 24px;
+      overflow-y: auto;
+      max-height: 70vh;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-group label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .form-input,
+    .form-select {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 10px 14px;
+      color: var(--text-main);
+      font-family: inherit;
+      font-size: 14px;
+      transition: border-color 0.2s;
+    }
+
+    .form-input:focus,
+    .form-select:focus {
+      outline: none;
+      border-color: var(--accent-color);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .form-row {
+      display: flex;
+      gap: 16px;
+    }
+
+    .form-row .form-group {
+      flex: 1;
+    }
+
+    .remote-only {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-height: 0;
+      overflow: hidden;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      opacity: 0;
+    }
+
+    .remote-only.visible {
+      max-height: 380px;
+      opacity: 1;
+      padding-top: 4px;
+    }
+
+    .modal-footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border-color);
+      background: rgba(10, 15, 29, 0.4);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .flex-end {
+      display: flex;
+      gap: 12px;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+  </style>
+</head>
+
+<body>
+
+  <header>
+    <div class="logo-container">
+      <div class="logo-icon">S</div>
+      <div class="logo-text">ShipDeck</div>
+    </div>
+
+    <div class="header-controls">
+      <!-- Developer Simulator Selector -->
+      <div class="dev-sim-bar" id="devSimControl" style="display: none;">
+        <span class="dev-sim-title">模拟角色 (Dev Role):</span>
+        <select id="simRoleSelect" class="dev-sim-select" onchange="changeSimulatedRole()">
+          <option value="admin">Admin Role (Full Access)</option>
+          <option value="user">User Role (Restricted)</option>
+        </select>
+      </div>
+
+      <div class="user-profile" id="userProfile" style="display: none;">
+        <div class="user-avatar" id="avatarLetter">A</div>
+        <div class="user-info">
+          <div class="user-username" id="userNameDisplay">Auth User</div>
+          <div class="user-details" id="userDetailsDisplay">Authelia Protected</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="main-container">
+
+    <!-- Sidebar: Host list -->
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">Environments</span>
+        <button class="btn btn-primary" id="addHostBtn" onclick="openHostModal()">
+          <span style="font-size: 16px; font-weight: bold;">+</span> Add Host
+        </button>
+      </div>
+      <div class="host-list" id="hostList">
+        <!-- Rendered Hosts -->
+      </div>
+    </div>
+
+    <!-- Main deployment dashboard panel -->
+    <div class="dashboard-panel" id="dashboardPanel">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-state-icon">📂</div>
+        <h3>No Target Host Selected</h3>
+        <p>Please select an environment from the sidebar, or configure a new host to begin deployments.</p>
+      </div>
+
+      <div id="contentPanel" style="display: none; height: 100%; flex-direction: column; gap: 24px;">
+        <div class="panel-header">
+          <div class="selected-dns">
+            <h2 class="selected-title" id="selectedHostName">Staging Environment</h2>
+            <div class="selected-meta" id="selectedHostMeta">Staging details...</div>
+          </div>
+          <button class="btn btn-secondary" onclick="checkActiveHostStatus()">
+            🔄 Ping Host
+          </button>
+        </div>
+
+        <div class="action-row">
+          <button class="btn btn-secondary" id="gitPullBtn" onclick="runAction('pull')">
+            ☁️ Git Pull
+          </button>
+          <button class="btn btn-primary" id="redeployBtn" onclick="runAction('redeploy')">
+            🚀 Redeploy
+          </button>
+          <button class="btn btn-secondary" id="logsBtn" onclick="runAction('logs')">
+            📝 View Logs
+          </button>
+        </div>
+
+        <div class="terminal-container" id="terminalContainer">
+          <div class="terminal-header">
+            <div class="terminal-dots">
+              <div class="terminal-dot" style="background:#ef4444;"></div>
+              <div class="terminal-dot" style="background:#f59e0b;"></div>
+              <div class="terminal-dot" style="background:#10b981;"></div>
+            </div>
+            <div id="terminalStatus">TERMINAL: STANDBY</div>
+          </div>
+          <div id="terminal"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add/Edit Host Modal -->
+  <div class="modal-overlay" id="hostModal">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modalTitle">Add Environment Host</h3>
+        <button class="close-btn" onclick="closeHostModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="hostFormId">
+
+        <div class="form-group">
+          <label for="hostName">Environment Name</label>
+          <input type="text" id="hostName" class="form-input" placeholder="e.g. Production Web API, Local DB">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="hostType">Connection Type</label>
+            <select id="hostType" class="form-select" onchange="toggleHostTypeFields()">
+              <option value="local">Local Host</option>
+              <option value="remote">Remote (SSH)</option>
+            </select>
+          </div>
+
+          <!-- Access Control: Admin or User role configuration -->
+          <div class="form-group">
+            <label for="hostAllowedRole">Required Access Role</label>
+            <select id="hostAllowedRole" class="form-select">
+              <option value="admin">Admin Role (Admins Only)</option>
+              <option value="user">User Role (Admins & Users)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="remote-only" id="remoteFields">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="hostIp">IP Address / Domain</label>
+              <input type="text" id="hostIp" class="form-input" placeholder="10.0.0.45 or example.com">
+            </div>
+            <div class="form-group" style="flex: 0 0 100px;">
+              <label for="hostPort">Port</label>
+              <input type="number" id="hostPort" class="form-input" value="22" placeholder="22">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="hostUser">SSH Username</label>
+            <input type="text" id="hostUser" class="form-input" placeholder="ubuntu, root">
+          </div>
+
+          <div class="form-group">
+            <label for="hostKeyPath">SSH Key File Path</label>
+            <input type="text" id="hostKeyPath" class="form-input"
+              placeholder="c:\Users\user\.ssh\id_rsa or /home/user/.ssh/id_rsa">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="hostProjectDir">Docker Project Dir (Absolute Path)</label>
+          <input type="text" id="hostProjectDir" class="form-input" placeholder="e.g. /var/www/docker-web-app">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div>
+          <button class="btn btn-danger" id="deleteHostBtn" onclick="deleteHost()"
+            style="display: none;">Delete</button>
+        </div>
+        <div class="flex-end">
+          <button class="btn btn-secondary" onclick="closeHostModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="submitHost()">Save Environment</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let hosts = [];
+    let selectedHost = null;
+    let term = null;
+    let fitAddon = null;
+    let wsConn = null;
+
+    // Simulation / Auth identities
+    let authEnabled = false;
+    let userRole = 'admin'; // local fallback role
+    let usernameVal = 'dev-admin';
+    let devModeActive = false;
+
+    // Run when page loads
+    window.onload = async () => {
+      initTerminal();
+      await fetchAuthStatus();
+      await loadHosts();
+
+      window.addEventListener('resize', () => {
+        if (fitAddon) fitAddon.fit();
+      });
+    };
+
+    // Construct headers including local role simulation overrides
+    function getAuthHeaders() {
+      const headers = { 'Content-Type': 'application/json' };
+      if (devModeActive) {
+        headers['x-dev-user'] = usernameVal;
+        headers['x-dev-role'] = userRole;
+        headers['x-dev-groups'] = userRole === 'admin' ? 'admins' : 'users';
+      }
+      return headers;
+    }
+
+    // Keep session auth info updated
+    async function fetchAuthStatus() {
+      try {
+        const response = await fetch('/api/auth-status', { headers: getAuthHeaders() });
+        const data = await response.json();
+
+        authEnabled = data.authEnabled;
+        devModeActive = !authEnabled;
+
+        const profileEl = document.getElementById('userProfile');
+        const devSimEl = document.getElementById('devSimControl');
+
+        if (devModeActive) {
+          // Show dev role switch controls in local sandbox mode
+          devSimEl.style.display = 'flex';
+          document.getElementById('simRoleSelect').value = userRole;
+        } else {
+          devSimEl.style.display = 'none';
+        }
+
+        if (data.user) {
+          profileEl.style.display = 'flex';
+          document.getElementById('userNameDisplay').textContent = data.user.name || data.user.username;
+          document.getElementById('avatarLetter').textContent = (data.user.name || data.user.username).charAt(0).toUpperCase();
+
+          let detailsText = data.authEnabled ? 'Authenticated via Proxy' : 'Local Dev Mode';
+          detailsText += ` [${data.user.role.toUpperCase()}]`;
+          if (data.user.groups.length > 0) {
+            detailsText += ` (${data.user.groups.join(', ')})`;
+          }
+          document.getElementById('userDetailsDisplay').textContent = detailsText;
+
+          // Store active roles locally to customize UI visibility
+          userRole = data.user.role;
+          usernameVal = data.user.username;
+        }
+
+        adjustUIPermissions();
+      } catch (err) {
+        console.error('Error fetching Auth Status:', err);
+      }
+    }
+
+    // Adjust visibility of Admin only actions
+    function adjustUIPermissions() {
+      const addBtn = document.getElementById('addHostBtn');
+      if (userRole === 'admin') {
+        addBtn.style.display = 'inline-flex';
+      } else {
+        addBtn.style.display = 'none';
+      }
+    }
+
+    // Handle Local mode role simulator changes
+    async function changeSimulatedRole() {
+      const selected = document.getElementById('simRoleSelect').value;
+      userRole = selected;
+      usernameVal = selected === 'admin' ? 'dev-admin' : 'dev-user';
+
+      // Close open active ws
+      if (wsConn) wsConn.close();
+
+      // Recalibrate UI
+      await fetchAuthStatus();
+      await loadHosts();
+
+      // Clear panel if selected host is no longer visible to user role
+      if (selectedHost) {
+        const stillAllowed = hosts.some(h => h.id === selectedHost.id);
+        if (!stillAllowed) {
+          selectedHost = null;
+          document.getElementById('contentPanel').style.display = 'none';
+          document.getElementById('emptyState').style.display = 'flex';
+        }
+      }
+
+      term.clear();
+      term.write(`\r\n\x1b[33mSwitched role simulator to: ${userRole.toUpperCase()} (Bypassing proxy: ${devModeActive})\x1b[0m\r\n`);
+    }
+
+    // Initialize the Xterm.js terminal instance
+    function initTerminal() {
+      term = new Terminal({
+        cursorBlink: true,
+        theme: {
+          background: '#020617',
+          foreground: '#f8fafc',
+          cursor: '#3b82f6',
+          black: '#0f172a',
+          red: '#f43f5e',
+          green: '#10b981',
+          yellow: '#f59e0b',
+          blue: '#3b82f6',
+          magenta: '#a855f7',
+          cyan: '#06b6d4',
+          white: '#cbd5e1'
+        },
+        fontFamily: '"Fira Code", monospace',
+        fontSize: 13,
+        rows: 20
+      });
+
+      fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(document.getElementById('terminal'));
+      fitAddon.fit();
+
+      term.write('\r\n\x1b[32mShipDeck deployment terminal initialized. Standing by...\x1b[0m\r\n');
+    }
+
+    // Toggle fields based on connection type
+    function toggleHostTypeFields() {
+      const type = document.getElementById('hostType').value;
+      const remoteFields = document.getElementById('remoteFields');
+      if (type === 'remote') {
+        remoteFields.classList.add('visible');
+      } else {
+        remoteFields.classList.remove('visible');
+      }
+    }
+
+    // Get hosts from API
+    async function loadHosts() {
+      try {
+        const response = await fetch('/api/hosts', { headers: getAuthHeaders() });
+        if (response.ok) {
+          hosts = await response.json();
+          renderHostList();
+        } else {
+          hosts = [];
+          renderHostList();
+        }
+      } catch (err) {
+        console.error('Error loading hosts:', err);
+      }
+    }
+
+    // Render left sidebar
+    function renderHostList() {
+      const container = document.getElementById('hostList');
+      container.innerHTML = '';
+
+      if (hosts.length === 0) {
+        container.innerHTML = '<div style="padding:24px; color:var(--text-muted); text-align:center; font-size:13px;">No accessible host environments.</div>';
+        return;
+      }
+
+      hosts.forEach(host => {
+        const item = document.createElement('div');
+        item.className = `host-item ${selectedHost && selectedHost.id === host.id ? 'active' : ''}`;
+        item.onclick = (e) => {
+          selectHost(host);
+        };
+
+        const isRemote = host.type === 'remote';
+        const displayRoleBadge = host.allowedRole || 'admin';
+
+        item.innerHTML = `
+          <div class="host-info-header">
+            <div class="host-name">${escapeHTML(host.name)}</div>
+            <div class="host-type-badges">
+              <span class="host-badge ${isRemote ? 'remote' : ''}">${host.type}</span>
+              <span class="host-badge perm-${displayRoleBadge}">${displayRoleBadge === 'admin' ? 'Admin Only' : 'User Access'}</span>
+            </div>
+          </div>
+          <div class="host-meta">
+            <div>📁 ${escapeHTML(host.projectDir)}</div>
+            ${isRemote ? `<div>🌐 ${escapeHTML(host.ip)}:${host.port}</div>` : '<div>💻 Local System</div>'}
+          </div>
+          <div class="host-info-header" style="align-items: center; margin-top: 4px;">
+            <div class="host-status" id="status-${host.id}">
+              <span class="status-dot checking"></span>
+              <span style="color:var(--text-muted)">checking status...</span>
+            </div>
+            ${userRole === 'admin' ? `
+              <button class="btn btn-secondary font-btn" style="padding: 4px 8px; font-size: 11px;" onclick="event.stopPropagation(); editHost('${host.id}')">
+                ⚙️ Manage
+              </button>
+            ` : ''}
+          </div>
+        `;
+        container.appendChild(item);
+
+        pingHostStatus(host.id);
+      });
+    }
+
+    function escapeHTML(str) {
+      if (!str) return '';
+      return str.replace(/[&<>'"]/g,
+        tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+      );
+    }
+
+    async function pingHostStatus(hostId) {
+      try {
+        const response = await fetch(`/api/hosts/${hostId}/ping`, { headers: getAuthHeaders() });
+        const data = await response.json();
+        const statusEl = document.getElementById(`status-${hostId}`);
+        if (!statusEl) return;
+
+        if (data.status === 'Online') {
+          statusEl.innerHTML = `<span class="status-dot online"></span> <span style="color:var(--success)">Online</span>`;
+        } else if (data.status === 'Error') {
+          statusEl.innerHTML = `<span class="status-dot error"></span> <span style="color:var(--warning)" title="${escapeHTML(data.message)}">Dir Alert</span>`;
+        } else {
+          statusEl.innerHTML = `<span class="status-dot offline"></span> <span style="color:var(--error)" title="${escapeHTML(data.message)}">Offline</span>`;
+        }
+      } catch (err) {
+        const statusEl = document.getElementById(`status-${hostId}`);
+        if (statusEl) {
+          statusEl.innerHTML = `<span class="status-dot offline"></span> <span style="color:var(--error)">Offline</span>`;
+        }
+      }
+    }
+
+    // Select active environment
+    function selectHost(host) {
+      selectedHost = host;
+      renderHostList();
+
+      document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('contentPanel').style.display = 'flex';
+
+      document.getElementById('selectedHostName').textContent = host.name;
+
+      let metaText = '';
+      if (host.type === 'remote') {
+        metaText = `Remote Host SSH: ${host.user}@${host.ip}:${host.port} | Path: ${host.projectDir} | Access: ${host.allowedRole.toUpperCase()}`;
+      } else {
+        metaText = `Local Deployment | Path: ${host.projectDir} | Access: ${host.allowedRole.toUpperCase()}`;
+      }
+      document.getElementById('selectedHostMeta').textContent = metaText;
+
+      term.clear();
+      term.write(`\r\n\x1b[32mSwitched to environment: ${host.name}\x1b[0m\r\n`);
+      term.write(`\x1b[33mSelect git pull, redeploy, or view logs stream to execute.\x1b[0m\r\n\r\n`);
+
+      if (wsConn) {
+        wsConn.close();
+      }
+    }
+
+    async function checkActiveHostStatus() {
+      if (!selectedHost) return;
+      const termStatus = document.getElementById('terminalStatus');
+      termStatus.textContent = 'PROBING ENVIRONMENT...';
+      term.write(`\r\nPinging Host connection: ${selectedHost.name}...\r\n`);
+
+      await pingHostStatus(selectedHost.id);
+
+      term.write(`Ping complete. Status refreshed in Sidebar.\r\n\r\n`);
+      termStatus.textContent = 'TERMINAL: STANDBY';
+    }
+
+    // Executed Action
+    function runAction(action) {
+      if (!selectedHost) return;
+
+      if (wsConn) {
+        wsConn.close();
+      }
+
+      document.getElementById('terminalContainer').classList.add('active');
+      document.getElementById('terminalStatus').textContent = `RUNNING: ${action.toUpperCase()}`;
+
+      toggleButtons(true);
+
+      term.clear();
+      term.write(`\r\nConnecting to backend websocket stream for '${action}'...\r\n`);
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+      // Build query and attach simulation overrides if dev mode active (since WebSocket upgrade doesn't allow custom headers)
+      let customSimQuery = '';
+      if (devModeActive) {
+        customSimQuery = `&simUser=${encodeURIComponent(usernameVal)}&simRole=${encodeURIComponent(userRole)}`;
+      }
+
+      const wsUrl = `${protocol}//${window.location.host}/api/stream?action=${action}&hostId=${selectedHost.id}${customSimQuery}`;
+
+      wsConn = new WebSocket(wsUrl);
+
+      wsConn.onmessage = (event) => {
+        term.write(event.data);
+      };
+
+      wsConn.onclose = (event) => {
+        document.getElementById('terminalContainer').classList.remove('active');
+        document.getElementById('terminalStatus').textContent = `FINISHED: ${action.toUpperCase()}`;
+        toggleButtons(false);
+        wsConn = null;
+        pingHostStatus(selectedHost.id);
+      };
+
+      wsConn.onerror = (error) => {
+        term.write(`\r\n\x1b[31mWebsocket error: Connection refused by server.\x1b[0m\r\n`);
+        document.getElementById('terminalContainer').classList.remove('active');
+        document.getElementById('terminalStatus').textContent = 'ERROR';
+        toggleButtons(false);
+      };
+    }
+
+    function toggleButtons(disabled) {
+      document.getElementById('gitPullBtn').disabled = disabled;
+      document.getElementById('redeployBtn').disabled = disabled;
+      document.getElementById('logsBtn').disabled = disabled;
+    }
+
+    // Modal Control Box
+    function openHostModal() {
+      if (userRole !== 'admin') {
+        alert('Permission denied. Admin role required.');
+        return;
+      }
+
+      document.getElementById('hostFormId').value = '';
+      document.getElementById('hostName').value = '';
+      document.getElementById('hostType').value = 'local';
+      document.getElementById('hostAllowedRole').value = 'admin'; // default is admin
+      document.getElementById('hostIp').value = '';
+      document.getElementById('hostPort').value = '22';
+      document.getElementById('hostUser').value = '';
+      document.getElementById('hostKeyPath').value = '';
+      document.getElementById('hostProjectDir').value = '';
+
+      document.getElementById('deleteHostBtn').style.display = 'none';
+      document.getElementById('modalTitle').textContent = 'Add Environment Host';
+
+      toggleHostTypeFields();
+      document.getElementById('hostModal').classList.add('open');
+    }
+
+    function editHost(id) {
+      if (userRole !== 'admin') {
+        alert('Permission denied. Admin role required.');
+        return;
+      }
+
+      const host = hosts.find(h => h.id === id);
+      if (!host) return;
+
+      document.getElementById('hostFormId').value = host.id;
+      document.getElementById('hostName').value = host.name;
+      document.getElementById('hostType').value = host.type;
+      document.getElementById('hostAllowedRole').value = host.allowedRole || 'admin';
+      document.getElementById('hostIp').value = host.ip;
+      document.getElementById('hostPort').value = host.port;
+      document.getElementById('hostUser').value = host.user;
+      document.getElementById('hostKeyPath').value = host.sshKeyPath;
+      document.getElementById('hostProjectDir').value = host.projectDir;
+
+      document.getElementById('deleteHostBtn').style.display = 'inline-flex';
+      document.getElementById('modalTitle').textContent = 'Manage Environment Host';
+
+      toggleHostTypeFields();
+      document.getElementById('hostModal').classList.add('open');
+    }
+
+    function closeHostModal() {
+      document.getElementById('hostModal').classList.remove('open');
+    }
+
+    // Create / Update Submit Request
+    async function submitHost() {
+      const id = document.getElementById('hostFormId').value;
+      const name = document.getElementById('hostName').value;
+      const type = document.getElementById('hostType').value;
+      const allowedRole = document.getElementById('hostAllowedRole').value;
+      const ip = document.getElementById('hostIp').value;
+      const port = document.getElementById('hostPort').value;
+      const user = document.getElementById('hostUser').value;
+      const sshKeyPath = document.getElementById('hostKeyPath').value;
+      const projectDir = document.getElementById('hostProjectDir').value;
+
+      if (!name || !projectDir) {
+        alert('Name and project directory paths are required requirements.');
+        return;
+      }
+      if (type === 'remote' && (!ip || !user)) {
+        alert('IP and User configurations are mandatory requirements for remote connections.');
+        return;
+      }
+
+      const bodyData = { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole };
+
+      try {
+        let response;
+        if (id) {
+          response = await fetch(`/api/hosts/${id}`, {
+            method: 'PUT',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(bodyData)
+          });
+        } else {
+          response = await fetch('/api/hosts', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(bodyData)
+          });
+        }
+
+        if (response.ok) {
+          closeHostModal();
+          await loadHosts();
+
+          const savedData = await response.json();
+          if (id && selectedHost && selectedHost.id === id) {
+            selectHost(savedData);
+          }
+        } else {
+          const errData = await response.json();
+          alert('Submission error: ' + errData.error);
+        }
+      } catch (err) {
+        console.error('Error submitting host info:', err);
+        alert('Failed to save. Check server output.');
+      }
+    }
+
+    // Delete Host Environment
+    async function deleteHost() {
+      const id = document.getElementById('hostFormId').value;
+      if (!id) return;
+
+      if (!confirm('Are you absolutely certain you wish to delete this docker environment host?')) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/hosts/${id}`, {
+          method: 'DELETE',
+          headers: getAuthHeaders()
+        });
+
+        if (response.ok) {
+          closeHostModal();
+          if (selectedHost && selectedHost.id === id) {
+            selectedHost = null;
+            document.getElementById('contentPanel').style.display = 'none';
+            document.getElementById('emptyState').style.display = 'flex';
+          }
+          await loadHosts();
+        } else {
+          const errData = await response.json();
+          alert('Failed to delete: ' + errData.error);
+        }
+      } catch (err) {
+        console.error('Error deleting environment:', err);
+        alert('Server query failure. Check console.');
+      }
+    }
+  </script>
+</body>
+
+</html>
