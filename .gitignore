@@ -3,6 +3,7 @@ node_modules/
 
 # Local databases / configs (contains target server credentials & paths)
 hosts.json
+data/
 
 # Environment files
 .env

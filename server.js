@@ -11,7 +11,23 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ noServer: true });
 
 const PORT = process.env.PORT || 3000;
-const HOSTS_FILE = path.join(__dirname, 'hosts.json');
+const HOSTS_FILE = (() => {
+  const DATA_DIR = path.join(__dirname, 'data');
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+  const target = path.join(DATA_DIR, 'hosts.json');
+  const oldHostsFile = path.join(__dirname, 'hosts.json');
+  if (fs.existsSync(oldHostsFile) && !fs.existsSync(target)) {
+    try {
+      fs.copyFileSync(oldHostsFile, target);
+      console.log('Migrated hosts.json directory location safely to data/hosts.json');
+    } catch (e) {
+      console.error('Migration failed:', e);
+    }
+  }
+  return target;
+})();
 
 // Middleware
 app.use(express.json());
@@ -137,7 +153,7 @@ app.get('/api/hosts', authMiddleware, (req, res) => {
 });
 
 app.post('/api/hosts', authMiddleware, requireAdmin, (req, res) => {
-  const { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions } = req.body;
+  const { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions, gitUrl } = req.body;
 
   if (!name || !type || !projectDir) {
     return res.status(400).json({ error: 'Missing name, type, or project directory path.' });
@@ -159,7 +175,8 @@ app.post('/api/hosts', authMiddleware, requireAdmin, (req, res) => {
     sshKeyPath: type === 'remote' ? sshKeyPath : '',
     projectDir: resolvedDir,
     allowedRole: allowedRole === 'user' ? 'user' : 'admin', // default is admin
-    envPermissions: envPermissions || { default: 'none', users: {}, groups: {} }
+    envPermissions: envPermissions || { default: 'none', users: {}, groups: {} },
+    gitUrl: gitUrl || ''
   };
 
   hosts.push(newHost);
@@ -169,7 +186,7 @@ app.post('/api/hosts', authMiddleware, requireAdmin, (req, res) => {
 
 app.put('/api/hosts/:id', authMiddleware, requireAdmin, (req, res) => {
   const { id } = req.params;
-  const { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions } = req.body;
+  const { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions, gitUrl } = req.body;
 
   let hosts = getHosts();
   const index = hosts.findIndex(h => h.id === id);
@@ -196,7 +213,8 @@ app.put('/api/hosts/:id', authMiddleware, requireAdmin, (req, res) => {
     sshKeyPath: type === 'remote' ? sshKeyPath : '',
     projectDir: resolvedDir,
     allowedRole: allowedRole === 'user' ? 'user' : 'admin',
-    envPermissions: envPermissions || { default: 'none', users: {}, groups: {} }
+    envPermissions: envPermissions || { default: 'none', users: {}, groups: {} },
+    gitUrl: gitUrl || ''
   };
 
   saveHosts(hosts);
@@ -518,7 +536,16 @@ wss.on('connection', (ws, request) => {
   // Determine commands to execute based on host action
   let commandStr = '';
   if (action === 'pull') {
-    commandStr = 'git pull';
+    if (host.type === 'local') {
+      const gitDir = path.join(host.projectDir, '.git');
+      const isCloneRequired = host.gitUrl && !fs.existsSync(gitDir);
+      commandStr = isCloneRequired ? `git clone "${host.gitUrl}" .` : 'git pull';
+      if (!fs.existsSync(host.projectDir)) {
+        fs.mkdirSync(host.projectDir, { recursive: true });
+      }
+    } else {
+      commandStr = 'git pull';
+    }
   } else if (action === 'redeploy') {
     commandStr = 'docker compose up -d --build';
   } else if (action === 'logs') {
@@ -569,7 +596,12 @@ wss.on('connection', (ws, request) => {
 
     conn.on('ready', () => {
       emitLog(`\x1b[32mSSH Connection established. Spawning session...\x1b[0m\r\n`);
-      const fullRemoteCommand = `cd "${host.projectDir}" && ${commandStr}`;
+      let fullRemoteCommand = '';
+      if (action === 'pull' && host.gitUrl) {
+        fullRemoteCommand = `mkdir -p "${host.projectDir}" && cd "${host.projectDir}" && ( [ -d .git ] && git pull || git clone "${host.gitUrl}" . )`;
+      } else {
+        fullRemoteCommand = `mkdir -p "${host.projectDir}" && cd "${host.projectDir}" && ${commandStr}`;
+      }
 
       conn.exec(fullRemoteCommand, (err, stream) => {
         if (err) {

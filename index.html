@@ -623,6 +623,92 @@
       gap: 16px;
     }
 
+    /* Custom Dropdown Styling */
+    .custom-select-container {
+      position: relative;
+      width: 100%;
+    }
+
+    .custom-select-trigger {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 10px 14px;
+      color: var(--text-main);
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      user-select: none;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .custom-select-trigger:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .custom-select-trigger.active {
+      border-color: var(--accent-color);
+      box-shadow: 0 0 10px rgba(59, 130, 246, 0.15);
+    }
+
+    .custom-select-trigger .arrow {
+      font-size: 8px;
+      transition: transform 0.2s;
+      margin-left: 8px;
+      opacity: 0.7;
+    }
+
+    .custom-select-trigger.active .arrow {
+      transform: rotate(180deg);
+    }
+
+    .custom-select-options {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+      z-index: 999;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-5px);
+      transition: all 0.2s ease-in-out;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .custom-select-options.open {
+      opacity: 1;
+      pointer-events: all;
+      transform: translateY(0);
+    }
+
+    .custom-select-option {
+      padding: 10px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      color: var(--text-muted);
+      text-align: left;
+    }
+
+    .custom-select-option:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-main);
+    }
+
+    .custom-select-option.selected {
+      background: rgba(59, 130, 246, 0.1);
+      color: var(--accent-color);
+      font-weight: 500;
+    }
+
     .form-row .form-group {
       flex: 1;
     }
@@ -695,12 +781,23 @@
       </div>
 
       <!-- Developer Simulator Selector -->
-      <div class="dev-sim-bar" id="devSimControl" style="display: none;">
+      <div class="dev-sim-bar" id="devSimControl" style="display: none; align-items: center; gap: 8px;">
         <span class="dev-sim-title">Dev Role:</span>
-        <select id="simRoleSelect" class="dev-sim-select" onchange="changeSimulatedRole()">
-          <option value="admin">Admin Role (Full Access)</option>
-          <option value="user">User Role (Restricted)</option>
-        </select>
+        <div class="custom-select-container" id="simRoleDropdown" style="width: 210px;">
+          <div class="custom-select-trigger" onclick="toggleCustomDropdown('simRoleDropdown')">
+            <span class="custom-select-value">Admin Role (Full Access)</span>
+            <span class="arrow">▼</span>
+          </div>
+          <div class="custom-select-options">
+            <div class="custom-select-option selected" data-value="admin"
+              onclick="selectCustomDropdownOption('simRoleDropdown', 'admin', 'Admin Role (Full Access)')">Admin Role
+              (Full Access)</div>
+            <div class="custom-select-option" data-value="user"
+              onclick="selectCustomDropdownOption('simRoleDropdown', 'user', 'User Role (Restricted)')">User Role
+              (Restricted)</div>
+          </div>
+          <input type="hidden" id="simRoleSelect" value="admin">
+        </div>
       </div>
 
       <div class="user-profile" id="userProfile" style="display: none;">
@@ -796,29 +893,62 @@
         <div class="form-row">
           <div class="form-group">
             <label for="hostType">Connection Type</label>
-            <select id="hostType" class="form-select" onchange="toggleHostTypeFields()">
-              <option value="local">Local Host</option>
-              <option value="remote">Remote (SSH)</option>
-            </select>
+            <div class="custom-select-container" id="hostTypeDropdown">
+              <div class="custom-select-trigger" onclick="toggleCustomDropdown('hostTypeDropdown')">
+                <span class="custom-select-value">Local Host</span>
+                <span class="arrow">▼</span>
+              </div>
+              <div class="custom-select-options">
+                <div class="custom-select-option selected" data-value="local"
+                  onclick="selectCustomDropdownOption('hostTypeDropdown', 'local', 'Local Host')">Local Host</div>
+                <div class="custom-select-option" data-value="remote"
+                  onclick="selectCustomDropdownOption('hostTypeDropdown', 'remote', 'Remote (SSH)')">Remote (SSH)</div>
+              </div>
+              <input type="hidden" id="hostType" value="local">
+            </div>
           </div>
 
           <!-- Access Control: Admin or User role configuration -->
           <div class="form-group">
             <label for="hostAllowedRole">Required Access Role</label>
-            <select id="hostAllowedRole" class="form-select">
-              <option value="admin">Admin Role (Admins Only)</option>
-              <option value="user">User Role (Admins & Users)</option>
-            </select>
+            <div class="custom-select-container" id="hostAllowedRoleDropdown">
+              <div class="custom-select-trigger" onclick="toggleCustomDropdown('hostAllowedRoleDropdown')">
+                <span class="custom-select-value">Admin Role (Admins Only)</span>
+                <span class="arrow">▼</span>
+              </div>
+              <div class="custom-select-options">
+                <div class="custom-select-option selected" data-value="admin"
+                  onclick="selectCustomDropdownOption('hostAllowedRoleDropdown', 'admin', 'Admin Role (Admins Only)')">
+                  Admin Role (Admins Only)</div>
+                <div class="custom-select-option" data-value="user"
+                  onclick="selectCustomDropdownOption('hostAllowedRoleDropdown', 'user', 'User Role (Admins & Users)')">
+                  User Role (Admins & Users)</div>
+              </div>
+              <input type="hidden" id="hostAllowedRole" value="admin">
+            </div>
           </div>
         </div>
 
         <div class="form-group">
           <label for="envDefaultPerm">Default .env File Access Level</label>
-          <select id="envDefaultPerm" class="form-select">
-            <option value="none">No Access (Hidden)</option>
-            <option value="read">Read Only (View Contents)</option>
-            <option value="write">Read & Write (Modify Contents)</option>
-          </select>
+          <div class="custom-select-container" id="envDefaultPermDropdown">
+            <div class="custom-select-trigger" onclick="toggleCustomDropdown('envDefaultPermDropdown')">
+              <span class="custom-select-value">No Access (Hidden)</span>
+              <span class="arrow">▼</span>
+            </div>
+            <div class="custom-select-options">
+              <div class="custom-select-option selected" data-value="none"
+                onclick="selectCustomDropdownOption('envDefaultPermDropdown', 'none', 'No Access (Hidden)')">No Access
+                (Hidden)</div>
+              <div class="custom-select-option" data-value="read"
+                onclick="selectCustomDropdownOption('envDefaultPermDropdown', 'read', 'Read Only (View Contents)')">Read
+                Only (View Contents)</div>
+              <div class="custom-select-option" data-value="write"
+                onclick="selectCustomDropdownOption('envDefaultPermDropdown', 'write', 'Read & Write (Modify Contents)')">
+                Read & Write (Modify Contents)</div>
+            </div>
+            <input type="hidden" id="envDefaultPerm" value="none">
+          </div>
         </div>
 
         <div class="form-row">
@@ -864,6 +994,12 @@
           <label for="hostProjectDir">Docker Project Dir (Absolute or Relative)</label>
           <input type="text" id="hostProjectDir" class="form-input"
             placeholder="e.g. /var/www/docker-web-app or ./projects/web">
+        </div>
+
+        <div class="form-group">
+          <label for="hostGitUrl">Git Repository URL (Optional)</label>
+          <input type="text" id="hostGitUrl" class="form-input"
+            placeholder="e.g. https://github.com/user/docker-project.git">
         </div>
       </div>
       <div class="modal-footer">
@@ -914,6 +1050,91 @@
     let fitAddon = null;
     let wsConn = null;
 
+    // Custom select widgets helper functions
+    function toggleCustomDropdown(dropdownId) {
+      const container = document.getElementById(dropdownId);
+      if (!container) return;
+      const trigger = container.querySelector('.custom-select-trigger');
+      const options = container.querySelector('.custom-select-options');
+
+      // Toggle current
+      const isOpen = options.classList.contains('open');
+
+      // Close all
+      document.querySelectorAll('.custom-select-options').forEach(menu => {
+        menu.classList.remove('open');
+      });
+      document.querySelectorAll('.custom-select-trigger').forEach(trig => {
+        trig.classList.remove('active');
+      });
+
+      if (!isOpen) {
+        trigger.classList.add('active');
+        options.classList.add('open');
+      }
+    }
+
+    function selectCustomDropdownOption(dropdownId, val, label) {
+      const container = document.getElementById(dropdownId);
+      if (!container) return;
+      const hiddenInput = container.querySelector('input[type="hidden"]');
+      const triggerText = container.querySelector('.custom-select-value');
+
+      hiddenInput.value = val;
+      triggerText.textContent = label;
+
+      container.querySelectorAll('.custom-select-option').forEach(opt => {
+        if (opt.getAttribute('data-value') === val) {
+          opt.classList.add('selected');
+        } else {
+          opt.classList.remove('selected');
+        }
+      });
+
+      const options = container.querySelector('.custom-select-options');
+      const trigger = container.querySelector('.custom-select-trigger');
+      options.classList.remove('open');
+      trigger.classList.remove('active');
+
+      // Call callbacks if any
+      if (hiddenInput.id === 'simRoleSelect') {
+        changeSimulatedRole();
+      } else if (hiddenInput.id === 'hostType') {
+        toggleHostTypeFields();
+      }
+    }
+
+    function syncCustomDropdown(dropdownId) {
+      const container = document.getElementById(dropdownId);
+      if (!container) return;
+      const hiddenInput = container.querySelector('input[type="hidden"]');
+      const triggerText = container.querySelector('.custom-select-value');
+      const val = hiddenInput.value;
+
+      let foundLabel = val;
+      container.querySelectorAll('.custom-select-option').forEach(opt => {
+        if (opt.getAttribute('data-value') === val) {
+          opt.classList.add('selected');
+          foundLabel = opt.textContent;
+        } else {
+          opt.classList.remove('selected');
+        }
+      });
+      triggerText.textContent = foundLabel;
+    }
+
+    // Window global clicks listener to dismiss select popups
+    window.addEventListener('click', (e) => {
+      if (!e.target.closest('.custom-select-container')) {
+        document.querySelectorAll('.custom-select-options').forEach(menu => {
+          menu.classList.remove('open');
+        });
+        document.querySelectorAll('.custom-select-trigger').forEach(trig => {
+          trig.classList.remove('active');
+        });
+      }
+    });
+
     // Simulation / Auth identities
     let authEnabled = false;
     let userRole = 'admin'; // local fallback role
@@ -960,6 +1181,7 @@
           // Show dev role switch controls in local sandbox mode
           devSimEl.style.display = 'flex';
           document.getElementById('simRoleSelect').value = userRole;
+          syncCustomDropdown('simRoleDropdown');
         } else {
           devSimEl.style.display = 'none';
         }
@@ -1332,9 +1554,14 @@
       document.getElementById('hostUser').value = '';
       document.getElementById('hostKeyPath').value = '';
       document.getElementById('hostProjectDir').value = '';
+      document.getElementById('hostGitUrl').value = '';
 
       document.getElementById('deleteHostBtn').style.display = 'none';
       document.getElementById('modalTitle').textContent = 'Add Environment Host';
+
+      syncCustomDropdown('hostTypeDropdown');
+      syncCustomDropdown('hostAllowedRoleDropdown');
+      syncCustomDropdown('envDefaultPermDropdown');
 
       toggleHostTypeFields();
       document.getElementById('hostModal').classList.add('open');
@@ -1353,10 +1580,15 @@
       document.getElementById('hostName').value = host.name;
       document.getElementById('hostType').value = host.type;
       document.getElementById('hostAllowedRole').value = host.allowedRole || 'admin';
+      document.getElementById('hostGitUrl').value = host.gitUrl || '';
 
       // Populate env matrix overrides
       const defaultEnv = (host.envPermissions && host.envPermissions.default) ? host.envPermissions.default : 'none';
       document.getElementById('envDefaultPerm').value = defaultEnv;
+
+      syncCustomDropdown('hostTypeDropdown');
+      syncCustomDropdown('hostAllowedRoleDropdown');
+      syncCustomDropdown('envDefaultPermDropdown');
 
       let userLines = [];
       if (host.envPermissions && host.envPermissions.users) {
@@ -1402,6 +1634,7 @@
       const user = document.getElementById('hostUser').value;
       const sshKeyPath = document.getElementById('hostKeyPath').value;
       const projectDir = document.getElementById('hostProjectDir').value;
+      const gitUrl = document.getElementById('hostGitUrl').value;
 
       if (!name || projectDir === undefined) {
         alert('Name and project directory paths are required configurations.');
@@ -1437,7 +1670,7 @@
         }
       }
 
-      const bodyData = { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions };
+      const bodyData = { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions, gitUrl };
 
       try {
         let response;
