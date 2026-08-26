@@ -996,10 +996,16 @@
             placeholder="e.g. /var/www/docker-web-app or ./projects/web">
         </div>
 
-        <div class="form-group">
-          <label for="hostGitUrl">Git Repository URL (Optional)</label>
-          <input type="text" id="hostGitUrl" class="form-input"
-            placeholder="e.g. https://github.com/user/docker-project.git">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="hostGitUrl">Git Repository URL (Optional)</label>
+            <input type="text" id="hostGitUrl" class="form-input"
+              placeholder="e.g. https://github.com/user/docker-project.git">
+          </div>
+          <div class="form-group" style="flex: 0 0 160px;">
+            <label for="hostBranch">Target Deploy Branch / Ref</label>
+            <input type="text" id="hostBranch" class="form-input" placeholder="e.g. main, production">
+          </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -1358,6 +1364,9 @@
           <div class="host-meta">
             <div>📁 ${escapeHTML(host.projectDir)}</div>
             ${isRemote ? `<div>🌐 ${escapeHTML(host.ip)}:${host.port}</div>` : '<div>💻 Local System</div>'}
+            <div id="version-${host.id}" style="font-size: 11px; color: var(--text-muted); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; display: flex; align-items: center; gap: 4px;">
+              🔍 checking version...
+            </div>
           </div>
           <div class="host-info-header" style="align-items: center; margin-top: 4px;">
             <div class="host-status" id="status-${host.id}">
@@ -1389,6 +1398,7 @@
         const response = await fetch(`/api/hosts/${hostId}/ping`, { headers: getAuthHeaders() });
         const data = await response.json();
         const statusEl = document.getElementById(`status-${hostId}`);
+        const versionEl = document.getElementById(`version-${hostId}`);
         if (!statusEl) return;
 
         if (data.status === 'Online') {
@@ -1398,10 +1408,22 @@
         } else {
           statusEl.innerHTML = `<span class="status-dot offline"></span> <span style="color:var(--error)" title="${escapeHTML(data.message)}">Offline</span>`;
         }
+
+        if (versionEl) {
+          if (data.version) {
+            versionEl.innerHTML = `🏷️ ${escapeHTML(data.version)}`;
+          } else {
+            versionEl.innerHTML = `🏷️ No version info available`;
+          }
+        }
       } catch (err) {
         const statusEl = document.getElementById(`status-${hostId}`);
+        const versionEl = document.getElementById(`version-${hostId}`);
         if (statusEl) {
           statusEl.innerHTML = `<span class="status-dot offline"></span> <span style="color:var(--error)">Offline</span>`;
+        }
+        if (versionEl) {
+          versionEl.innerHTML = `🏷️ Connection Error`;
         }
       }
     }
@@ -1418,9 +1440,9 @@
 
       let metaText = '';
       if (host.type === 'remote') {
-        metaText = `Remote Host SSH: ${host.user}@${host.ip}:${host.port} | Path: ${host.projectDir} | Access: ${host.allowedRole.toUpperCase()}`;
+        metaText = `Remote Host SSH: ${host.user}@${host.ip}:${host.port} | Path: ${host.projectDir} | Branch: ${host.branch || 'main'} | Access: ${host.allowedRole.toUpperCase()}`;
       } else {
-        metaText = `Local Deployment | Path: ${host.projectDir} | Access: ${host.allowedRole.toUpperCase()}`;
+        metaText = `Local Deployment | Path: ${host.projectDir} | Branch: ${host.branch || 'main'} | Access: ${host.allowedRole.toUpperCase()}`;
       }
       document.getElementById('selectedHostMeta').textContent = metaText;
 
@@ -1555,6 +1577,7 @@
       document.getElementById('hostKeyPath').value = '';
       document.getElementById('hostProjectDir').value = '';
       document.getElementById('hostGitUrl').value = '';
+      document.getElementById('hostBranch').value = 'main';
 
       document.getElementById('deleteHostBtn').style.display = 'none';
       document.getElementById('modalTitle').textContent = 'Add Environment Host';
@@ -1581,6 +1604,7 @@
       document.getElementById('hostType').value = host.type;
       document.getElementById('hostAllowedRole').value = host.allowedRole || 'admin';
       document.getElementById('hostGitUrl').value = host.gitUrl || '';
+      document.getElementById('hostBranch').value = host.branch || 'main';
 
       // Populate env matrix overrides
       const defaultEnv = (host.envPermissions && host.envPermissions.default) ? host.envPermissions.default : 'none';
@@ -1635,6 +1659,7 @@
       const sshKeyPath = document.getElementById('hostKeyPath').value;
       const projectDir = document.getElementById('hostProjectDir').value;
       const gitUrl = document.getElementById('hostGitUrl').value;
+      const branch = document.getElementById('hostBranch').value;
 
       if (!name || projectDir === undefined) {
         alert('Name and project directory paths are required configurations.');
@@ -1670,7 +1695,7 @@
         }
       }
 
-      const bodyData = { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions, gitUrl };
+      const bodyData = { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions, gitUrl, branch };
 
       try {
         let response;

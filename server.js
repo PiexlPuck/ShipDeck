@@ -153,7 +153,7 @@ app.get('/api/hosts', authMiddleware, (req, res) => {
 });
 
 app.post('/api/hosts', authMiddleware, requireAdmin, (req, res) => {
-  const { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions, gitUrl } = req.body;
+  const { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions, gitUrl, branch } = req.body;
 
   if (!name || !type || !projectDir) {
     return res.status(400).json({ error: 'Missing name, type, or project directory path.' });
@@ -176,7 +176,8 @@ app.post('/api/hosts', authMiddleware, requireAdmin, (req, res) => {
     projectDir: resolvedDir,
     allowedRole: allowedRole === 'user' ? 'user' : 'admin', // default is admin
     envPermissions: envPermissions || { default: 'none', users: {}, groups: {} },
-    gitUrl: gitUrl || ''
+    gitUrl: gitUrl || '',
+    branch: branch || 'main'
   };
 
   hosts.push(newHost);
@@ -186,7 +187,7 @@ app.post('/api/hosts', authMiddleware, requireAdmin, (req, res) => {
 
 app.put('/api/hosts/:id', authMiddleware, requireAdmin, (req, res) => {
   const { id } = req.params;
-  const { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions, gitUrl } = req.body;
+  const { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions, gitUrl, branch } = req.body;
 
   let hosts = getHosts();
   const index = hosts.findIndex(h => h.id === id);
@@ -214,7 +215,8 @@ app.put('/api/hosts/:id', authMiddleware, requireAdmin, (req, res) => {
     projectDir: resolvedDir,
     allowedRole: allowedRole === 'user' ? 'user' : 'admin',
     envPermissions: envPermissions || { default: 'none', users: {}, groups: {} },
-    gitUrl: gitUrl || ''
+    gitUrl: gitUrl || '',
+    branch: branch || 'main'
   };
 
   saveHosts(hosts);
@@ -251,9 +253,17 @@ app.get('/api/hosts/:id/ping', authMiddleware, (req, res) => {
 
   if (host.type === 'local') {
     if (fs.existsSync(host.projectDir)) {
-      return res.json({ status: 'Online', message: 'Local directory exists.' });
+      const gitDir = path.join(host.projectDir, '.git');
+      if (fs.existsSync(gitDir)) {
+        exec('git log -1 --format="%h - %s (%cr)"', { cwd: host.projectDir }, (gitErr, stdout) => {
+          const version = gitErr ? 'No Version Data' : stdout.trim();
+          res.json({ status: 'Online', message: 'Local directory exists.', version });
+        });
+      } else {
+        res.json({ status: 'Online', message: 'Local directory exists. Not inside a Git repository.', version: 'No Git Repository' });
+      }
     } else {
-      return res.json({ status: 'Error', message: 'Local directory path does not exist on dashboard server.' });
+      res.json({ status: 'Error', message: 'Local directory path does not exist on dashboard server.', version: 'Unknown' });
     }
   } else {
     // Attempt SSH connection check (short timeout)
@@ -261,7 +271,8 @@ app.get('/api/hosts/:id/ping', authMiddleware, (req, res) => {
     let connError = null;
 
     conn.on('ready', () => {
-      conn.exec(`test -d "${host.projectDir}" && echo "exists" || echo "missing"`, (err, stream) => {
+      const cmd = `if [ -d "${host.projectDir}/.git" ]; then cd "${host.projectDir}" && git log -1 --format="%h - %s (%cr)"; elif [ -d "${host.projectDir}" ]; then echo "nogit"; else echo "missing"; fi`;
+      conn.exec(cmd, (err, stream) => {
         if (err) {
           conn.end();
           return res.json({ status: 'Error', message: `SSH Connection OK, command failed: ${err.message}` });
@@ -271,16 +282,19 @@ app.get('/api/hosts/:id/ping', authMiddleware, (req, res) => {
           output += data;
         }).on('close', (code) => {
           conn.end();
-          if (output.trim() === 'exists') {
-            res.json({ status: 'Online', message: 'SSH Connection OK. Remote project directory exists.' });
+          const result = output.trim();
+          if (result === 'missing') {
+            res.json({ status: 'Error', message: 'SSH Connection OK. Project directory DOES NOT exist on remote server.', version: 'Unknown' });
+          } else if (result === 'nogit') {
+            res.json({ status: 'Online', message: 'SSH Connection OK. Remote project directory exists (No Git Repository).', version: 'No Git Repository' });
           } else {
-            res.json({ status: 'Error', message: 'SSH Connection OK. Project directory DOES NOT exist on remote server.' });
+            res.json({ status: 'Online', message: 'SSH Connection OK. Remote project directory exists.', version: result });
           }
         });
       });
     }).on('error', (err) => {
       connError = err.message;
-      res.json({ status: 'Offline', message: `SSH Connection failed: ${connError}` });
+      res.json({ status: 'Offline', message: `SSH Connection failed: ${connError}`, version: 'Unknown' });
     }).connect({
       host: host.ip,
       port: host.port,
@@ -539,7 +553,9 @@ wss.on('connection', (ws, request) => {
     if (host.type === 'local') {
       const gitDir = path.join(host.projectDir, '.git');
       const isCloneRequired = host.gitUrl && !fs.existsSync(gitDir);
-      commandStr = isCloneRequired ? `git clone "${host.gitUrl}" .` : 'git pull';
+      commandStr = isCloneRequired
+        ? `git clone -b "${host.branch || 'main'}" "${host.gitUrl}" .`
+        : `git checkout "${host.branch || 'main'}" && git pull`;
       if (!fs.existsSync(host.projectDir)) {
         fs.mkdirSync(host.projectDir, { recursive: true });
       }
@@ -598,7 +614,7 @@ wss.on('connection', (ws, request) => {
       emitLog(`\x1b[32mSSH Connection established. Spawning session...\x1b[0m\r\n`);
       let fullRemoteCommand = '';
       if (action === 'pull' && host.gitUrl) {
-        fullRemoteCommand = `mkdir -p "${host.projectDir}" && cd "${host.projectDir}" && ( [ -d .git ] && git pull || git clone "${host.gitUrl}" . )`;
+        fullRemoteCommand = `mkdir -p "${host.projectDir}" && cd "${host.projectDir}" && ( [ -d .git ] && ( git checkout "${host.branch || 'main'}" && git pull ) || git clone -b "${host.branch || 'main'}" "${host.gitUrl}" . )`;
       } else {
         fullRemoteCommand = `mkdir -p "${host.projectDir}" && cd "${host.projectDir}" && ${commandStr}`;
       }
