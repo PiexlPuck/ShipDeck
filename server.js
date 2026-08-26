@@ -3,7 +3,7 @@ const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
 const fs = require('fs');
-const { spawn } = require('child_process');
+const { spawn, exec } = require('child_process');
 const { Client } = require('ssh2');
 
 const app = express();
@@ -137,7 +137,7 @@ app.get('/api/hosts', authMiddleware, (req, res) => {
 });
 
 app.post('/api/hosts', authMiddleware, requireAdmin, (req, res) => {
-  const { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole } = req.body;
+  const { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions } = req.body;
 
   if (!name || !type || !projectDir) {
     return res.status(400).json({ error: 'Missing name, type, or project directory path.' });
@@ -148,6 +148,7 @@ app.post('/api/hosts', authMiddleware, requireAdmin, (req, res) => {
   }
 
   const hosts = getHosts();
+  const resolvedDir = type === 'local' ? path.resolve(projectDir || '.') : projectDir;
   const newHost = {
     id: Date.now().toString(),
     name,
@@ -156,8 +157,9 @@ app.post('/api/hosts', authMiddleware, requireAdmin, (req, res) => {
     port: type === 'remote' ? parseInt(port) || 22 : 22,
     user: type === 'remote' ? user : '',
     sshKeyPath: type === 'remote' ? sshKeyPath : '',
-    projectDir,
-    allowedRole: allowedRole === 'user' ? 'user' : 'admin' // default is admin
+    projectDir: resolvedDir,
+    allowedRole: allowedRole === 'user' ? 'user' : 'admin', // default is admin
+    envPermissions: envPermissions || { default: 'none', users: {}, groups: {} }
   };
 
   hosts.push(newHost);
@@ -167,7 +169,7 @@ app.post('/api/hosts', authMiddleware, requireAdmin, (req, res) => {
 
 app.put('/api/hosts/:id', authMiddleware, requireAdmin, (req, res) => {
   const { id } = req.params;
-  const { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole } = req.body;
+  const { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions } = req.body;
 
   let hosts = getHosts();
   const index = hosts.findIndex(h => h.id === id);
@@ -183,6 +185,7 @@ app.put('/api/hosts/:id', authMiddleware, requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'Remote connection requires IP address and user name.' });
   }
 
+  const resolvedDir = type === 'local' ? path.resolve(projectDir || '.') : projectDir;
   hosts[index] = {
     id,
     name,
@@ -191,8 +194,9 @@ app.put('/api/hosts/:id', authMiddleware, requireAdmin, (req, res) => {
     port: type === 'remote' ? parseInt(port) || 22 : 22,
     user: type === 'remote' ? user : '',
     sshKeyPath: type === 'remote' ? sshKeyPath : '',
-    projectDir,
-    allowedRole: allowedRole === 'user' ? 'user' : 'admin'
+    projectDir: resolvedDir,
+    allowedRole: allowedRole === 'user' ? 'user' : 'admin',
+    envPermissions: envPermissions || { default: 'none', users: {}, groups: {} }
   };
 
   saveHosts(hosts);
@@ -266,6 +270,175 @@ app.get('/api/hosts/:id/ping', authMiddleware, (req, res) => {
       privateKey: fs.existsSync(host.sshKeyPath)
         ? fs.readFileSync(host.sshKeyPath)
         : host.sshKeyPath,
+      readyTimeout: 5000
+    });
+  }
+});
+
+// Helper to determine active env permissions stage
+function getEnvPermission(host, userContext) {
+  if (userContext.role === 'admin') {
+    return 'write';
+  }
+
+  const policy = host.envPermissions || { default: 'none', users: {}, groups: {} };
+  const username = userContext.username ? userContext.username.toLowerCase() : null;
+
+  if (username && policy.users && policy.users[username]) {
+    return policy.users[username];
+  }
+
+  if (userContext.groups && policy.groups) {
+    let highest = 'none';
+    for (const group of userContext.groups) {
+      const rule = policy.groups[group];
+      if (rule) {
+        if (rule === 'write') {
+          highest = 'write';
+        } else if (rule === 'read' && highest !== 'write') {
+          highest = 'read';
+        }
+      }
+    }
+    if (highest !== 'none') {
+      return highest;
+    }
+  }
+
+  return policy.default || 'none';
+}
+
+// System Docker Socket Status probe
+app.get('/api/system-status', authMiddleware, (req, res) => {
+  const socketPath = '/var/run/docker.sock';
+  const hasLinuxSocket = fs.existsSync(socketPath);
+
+  exec('docker info', (err, stdout, stderr) => {
+    if (err) {
+      return res.json({
+        dockerConnected: false,
+        message: 'Docker daemon is not reached inside dashboard: ' + err.message,
+        hasSocket: hasLinuxSocket
+      });
+    }
+    res.json({
+      dockerConnected: true,
+      message: 'Docker daemon is accessible.',
+      hasSocket: hasLinuxSocket
+    });
+  });
+});
+
+// Get .env file inside project host
+app.get('/api/hosts/:id/env', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  const hosts = getHosts();
+  const host = hosts.find(h => h.id === id);
+  if (!host) {
+    return res.status(404).json({ error: 'Host not found' });
+  }
+
+  const permission = getEnvPermission(host, req.user);
+  if (permission === 'none') {
+    return res.status(403).json({ error: 'Forbidden. Access to env file is restricted.' });
+  }
+
+  if (host.type === 'local') {
+    const envPath = path.resolve(host.projectDir, '.env');
+    if (!fs.existsSync(envPath)) {
+      return res.json({ permission, content: '' });
+    }
+    fs.readFile(envPath, 'utf8', (err, data) => {
+      if (err) {
+        return res.status(500).json({ error: `Failed to read local env: ${err.message}` });
+      }
+      res.json({ permission, content: data });
+    });
+  } else {
+    const conn = new Client();
+    conn.on('ready', () => {
+      conn.exec(`cat "${host.projectDir}/.env" 2>/dev/null || echo ""`, (err, stream) => {
+        if (err) {
+          conn.end();
+          return res.status(500).json({ error: `SSH Command execution failed: ${err.message}` });
+        }
+        let output = '';
+        stream.on('data', (data) => {
+          output += data;
+          if (output.length > 500000) { // Safety ceiling: 500KB
+            stream.destroy();
+          }
+        }).on('close', (code) => {
+          conn.end();
+          res.json({ permission, content: output });
+        });
+      });
+    }).on('error', (err) => {
+      res.status(500).json({ error: `SSH Connection failed: ${err.message}` });
+    }).connect({
+      host: host.ip,
+      port: host.port,
+      username: host.user,
+      privateKey: fs.existsSync(host.sshKeyPath) ? fs.readFileSync(host.sshKeyPath) : host.sshKeyPath,
+      readyTimeout: 5000
+    });
+  }
+});
+
+// Update .env file inside project host
+app.post('/api/hosts/:id/env', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  const { content } = req.body;
+
+  if (content === undefined) {
+    return res.status(400).json({ error: 'Missing content field in request body.' });
+  }
+
+  const hosts = getHosts();
+  const host = hosts.find(h => h.id === id);
+  if (!host) {
+    return res.status(404).json({ error: 'Host not found' });
+  }
+
+  const permission = getEnvPermission(host, req.user);
+  if (permission !== 'write') {
+    return res.status(403).json({ error: 'Forbidden. Write access is restricted.' });
+  }
+
+  if (host.type === 'local') {
+    const envPath = path.resolve(host.projectDir, '.env');
+    fs.writeFile(envPath, content, 'utf8', (err) => {
+      if (err) {
+        return res.status(500).json({ error: `Failed to save local env file: ${err.message}` });
+      }
+      res.json({ message: '.env file successfully updated.' });
+    });
+  } else {
+    const base64Content = Buffer.from(content).toString('base64');
+    const conn = new Client();
+    conn.on('ready', () => {
+      const cmd = `mkdir -p "${host.projectDir}" && echo "${base64Content}" | base64 -d > "${host.projectDir}/.env"`;
+      conn.exec(cmd, (err, stream) => {
+        if (err) {
+          conn.end();
+          return res.status(500).json({ error: `SSH write failed: ${err.message}` });
+        }
+        stream.on('close', (code) => {
+          conn.end();
+          if (code === 0) {
+            res.json({ message: '.env file successfully updated remotely.' });
+          } else {
+            res.status(500).json({ error: `Remote write command closed with failure code: ${code}` });
+          }
+        });
+      });
+    }).on('error', (err) => {
+      res.status(500).json({ error: `SSH Connection failed: ${err.message}` });
+    }).connect({
+      host: host.ip,
+      port: host.port,
+      username: host.user,
+      privateKey: fs.existsSync(host.sshKeyPath) ? fs.readFileSync(host.sshKeyPath) : host.sshKeyPath,
       readyTimeout: 5000
     });
   }

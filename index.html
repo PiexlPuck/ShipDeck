@@ -687,6 +687,13 @@
     </div>
 
     <div class="header-controls">
+      <!-- Docker Socket Indicator -->
+      <div class="user-profile" id="dockerSocketStatus"
+        style="font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; gap: 8px;">
+        <span class="status-dot checking" id="dockerSocketDot"></span>
+        <span id="dockerSocketText" style="color:var(--text-muted);">Docker Connection Probe...</span>
+      </div>
+
       <!-- Developer Simulator Selector -->
       <div class="dev-sim-bar" id="devSimControl" style="display: none;">
         <span class="dev-sim-title">Dev Role:</span>
@@ -750,6 +757,10 @@
           <button class="btn btn-secondary" id="logsBtn" onclick="runAction('logs')">
             📝 View Logs
           </button>
+          <!-- .env file viewer button -->
+          <button class="btn btn-secondary" id="manageEnvBtn" onclick="viewEnvFile()" style="display: none;">
+            📝 Manage .env
+          </button>
         </div>
 
         <div class="terminal-container" id="terminalContainer">
@@ -769,7 +780,7 @@
 
   <!-- Add/Edit Host Modal -->
   <div class="modal-overlay" id="hostModal">
-    <div class="modal-container">
+    <div class="modal-container" style="width: 580px; max-width: 90vw;">
       <div class="modal-header">
         <h3 class="modal-title" id="modalTitle">Add Environment Host</h3>
         <button class="close-btn" onclick="closeHostModal()">&times;</button>
@@ -801,6 +812,30 @@
           </div>
         </div>
 
+        <div class="form-group">
+          <label for="envDefaultPerm">Default .env File Access Level</label>
+          <select id="envDefaultPerm" class="form-select">
+            <option value="none">No Access (Hidden)</option>
+            <option value="read">Read Only (View Contents)</option>
+            <option value="write">Read & Write (Modify Contents)</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="envUserOverrides">User Access Overrides</label>
+            <textarea id="envUserOverrides" class="form-input"
+              style="height: 60px; font-family: monospace; font-size: 11px;"
+              placeholder="username:permission (e.g. john:read, one per line)"></textarea>
+          </div>
+          <div class="form-group">
+            <label for="envGroupOverrides">Group Access Overrides</label>
+            <textarea id="envGroupOverrides" class="form-input"
+              style="height: 60px; font-family: monospace; font-size: 11px;"
+              placeholder="groupname:permission (e.g. devs:write, one per line)"></textarea>
+          </div>
+        </div>
+
         <div class="remote-only" id="remoteFields">
           <div class="form-row">
             <div class="form-group">
@@ -826,8 +861,9 @@
         </div>
 
         <div class="form-group">
-          <label for="hostProjectDir">Docker Project Dir (Absolute Path)</label>
-          <input type="text" id="hostProjectDir" class="form-input" placeholder="e.g. /var/www/docker-web-app">
+          <label for="hostProjectDir">Docker Project Dir (Absolute or Relative)</label>
+          <input type="text" id="hostProjectDir" class="form-input"
+            placeholder="e.g. /var/www/docker-web-app or ./projects/web">
         </div>
       </div>
       <div class="modal-footer">
@@ -838,6 +874,34 @@
         <div class="flex-end">
           <button class="btn btn-secondary" onclick="closeHostModal()">Cancel</button>
           <button class="btn btn-primary" onclick="submitHost()">Save Environment</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- .env File Editor Modal -->
+  <div class="modal-overlay" id="envModalOverlay">
+    <div class="modal-container" style="width: 720px; max-width: 90vw;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <h3 class="modal-title">Manage Environment Variables (.env)</h3>
+          <span class="host-badge" id="envPermissionBadge" style="text-transform: uppercase;">NONE</span>
+        </div>
+        <button class="close-btn" onclick="closeEnvModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 16px;">
+        <div class="form-group" style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
+          <label for="envContents">File Buffer (.env)</label>
+          <textarea id="envContents" class="form-input"
+            style="flex: 1; min-height: 280px; font-family: 'Fira Code', monospace; font-size: 13px; background: #020617; color: #cbd5e1; border-color: var(--border-color); resize: vertical; line-height: 1.5;"
+            placeholder="# Add environment configurations..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div style="font-size: 11px; color: var(--text-muted);" id="envSaveStatus">Standing by.</div>
+        <div class="flex-end">
+          <button class="btn btn-secondary" onclick="closeEnvModal()">Close</button>
+          <button class="btn btn-primary" id="saveEnvBtn" onclick="submitEnvFile()">Save Config</button>
         </div>
       </div>
     </div>
@@ -854,6 +918,7 @@
     let authEnabled = false;
     let userRole = 'admin'; // local fallback role
     let usernameVal = 'dev-admin';
+    let userGroups = [];
     let devModeActive = false;
 
     // Run when page loads
@@ -861,6 +926,7 @@
       initTerminal();
       await fetchAuthStatus();
       await loadHosts();
+      await checkDockerSocketStatus();
 
       window.addEventListener('resize', () => {
         if (fitAddon) fitAddon.fit();
@@ -913,6 +979,7 @@
           // Store active roles locally to customize UI visibility
           userRole = data.user.role;
           usernameVal = data.user.username;
+          userGroups = data.user.groups || [];
         }
 
         adjustUIPermissions();
@@ -936,6 +1003,7 @@
       const selected = document.getElementById('simRoleSelect').value;
       userRole = selected;
       usernameVal = selected === 'admin' ? 'dev-admin' : 'dev-user';
+      userGroups = selected === 'admin' ? ['admins'] : ['users'];
 
       // Close open active ws
       if (wsConn) wsConn.close();
@@ -943,6 +1011,7 @@
       // Recalibrate UI
       await fetchAuthStatus();
       await loadHosts();
+      await checkDockerSocketStatus();
 
       // Clear panel if selected host is no longer visible to user role
       if (selectedHost) {
@@ -956,6 +1025,27 @@
 
       term.clear();
       term.write(`\r\n\x1b[33mSwitched role simulator to: ${userRole.toUpperCase()} (Bypassing proxy: ${devModeActive})\x1b[0m\r\n`);
+    }
+
+    // Docker Daemon Socket detection
+    async function checkDockerSocketStatus() {
+      try {
+        const response = await fetch('/api/system-status', { headers: getAuthHeaders() });
+        const data = await response.json();
+        const dot = document.getElementById('dockerSocketDot');
+        const text = document.getElementById('dockerSocketText');
+
+        if (data.dockerConnected) {
+          dot.className = 'status-dot online';
+          text.innerHTML = '<span style="color:var(--success)">Docker Daemon Connected</span>';
+        } else {
+          dot.className = 'status-dot offline';
+          text.innerHTML = '<span style="color:var(--error)" title="' + escapeHTML(data.message) + '">Docker Engine Disconnected</span>';
+        }
+      } catch (err) {
+        document.getElementById('dockerSocketDot').className = 'status-dot offline';
+        document.getElementById('dockerSocketText').textContent = 'Docker Socket Local Error';
+      }
     }
 
     // Initialize the Xterm.js terminal instance
@@ -1112,6 +1202,15 @@
       }
       document.getElementById('selectedHostMeta').textContent = metaText;
 
+      // Toggle .env viewer button visibility based on client-side check
+      const envPerm = getClientEnvPermission(host);
+      const envBtn = document.getElementById('manageEnvBtn');
+      if (envPerm !== 'none') {
+        envBtn.style.display = 'inline-flex';
+      } else {
+        envBtn.style.display = 'none';
+      }
+
       term.clear();
       term.write(`\r\n\x1b[32mSwitched to environment: ${host.name}\x1b[0m\r\n`);
       term.write(`\x1b[33mSelect git pull, redeploy, or view logs stream to execute.\x1b[0m\r\n\r\n`);
@@ -1119,6 +1218,30 @@
       if (wsConn) {
         wsConn.close();
       }
+    }
+
+    function getClientEnvPermission(host) {
+      if (userRole === 'admin') return 'write';
+      const policy = host.envPermissions || { default: 'none', users: {}, groups: {} };
+      const username = usernameVal ? usernameVal.toLowerCase() : null;
+
+      if (username && policy.users && policy.users[username]) {
+        return policy.users[username];
+      }
+
+      if (userGroups && policy.groups) {
+        let highest = 'none';
+        for (const group of userGroups) {
+          const rule = policy.groups[group];
+          if (rule) {
+            if (rule === 'write') highest = 'write';
+            else if (rule === 'read' && highest !== 'write') highest = 'read';
+          }
+        }
+        if (highest !== 'none') return highest;
+      }
+
+      return policy.default || 'none';
     }
 
     async function checkActiveHostStatus() {
@@ -1198,6 +1321,12 @@
       document.getElementById('hostName').value = '';
       document.getElementById('hostType').value = 'local';
       document.getElementById('hostAllowedRole').value = 'admin'; // default is admin
+
+      // Initialize new env matrix inputs
+      document.getElementById('envDefaultPerm').value = 'none';
+      document.getElementById('envUserOverrides').value = '';
+      document.getElementById('envGroupOverrides').value = '';
+
       document.getElementById('hostIp').value = '';
       document.getElementById('hostPort').value = '22';
       document.getElementById('hostUser').value = '';
@@ -1224,6 +1353,27 @@
       document.getElementById('hostName').value = host.name;
       document.getElementById('hostType').value = host.type;
       document.getElementById('hostAllowedRole').value = host.allowedRole || 'admin';
+
+      // Populate env matrix overrides
+      const defaultEnv = (host.envPermissions && host.envPermissions.default) ? host.envPermissions.default : 'none';
+      document.getElementById('envDefaultPerm').value = defaultEnv;
+
+      let userLines = [];
+      if (host.envPermissions && host.envPermissions.users) {
+        for (const [u, p] of Object.entries(host.envPermissions.users)) {
+          userLines.push(`${u}:${p}`);
+        }
+      }
+      document.getElementById('envUserOverrides').value = userLines.join('\n');
+
+      let groupLines = [];
+      if (host.envPermissions && host.envPermissions.groups) {
+        for (const [g, p] of Object.entries(host.envPermissions.groups)) {
+          groupLines.push(`${g}:${p}`);
+        }
+      }
+      document.getElementById('envGroupOverrides').value = groupLines.join('\n');
+
       document.getElementById('hostIp').value = host.ip;
       document.getElementById('hostPort').value = host.port;
       document.getElementById('hostUser').value = host.user;
@@ -1253,8 +1403,8 @@
       const sshKeyPath = document.getElementById('hostKeyPath').value;
       const projectDir = document.getElementById('hostProjectDir').value;
 
-      if (!name || !projectDir) {
-        alert('Name and project directory paths are required requirements.');
+      if (!name || projectDir === undefined) {
+        alert('Name and project directory paths are required configurations.');
         return;
       }
       if (type === 'remote' && (!ip || !user)) {
@@ -1262,7 +1412,32 @@
         return;
       }
 
-      const bodyData = { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole };
+      // Reconstruct envPermission overrides
+      const envPermissions = {
+        default: document.getElementById('envDefaultPerm').value,
+        users: {},
+        groups: {}
+      };
+
+      const userLines = document.getElementById('envUserOverrides').value.split('\n');
+      for (const line of userLines) {
+        if (!line.trim()) continue;
+        const parts = line.split(':');
+        if (parts.length === 2) {
+          envPermissions.users[parts[0].trim().toLowerCase()] = parts[1].trim().toLowerCase();
+        }
+      }
+
+      const groupLines = document.getElementById('envGroupOverrides').value.split('\n');
+      for (const line of groupLines) {
+        if (!line.trim()) continue;
+        const parts = line.split(':');
+        if (parts.length === 2) {
+          envPermissions.groups[parts[0].trim().toLowerCase()] = parts[1].trim().toLowerCase();
+        }
+      }
+
+      const bodyData = { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions };
 
       try {
         let response;
@@ -1328,6 +1503,100 @@
       } catch (err) {
         console.error('Error deleting environment:', err);
         alert('Server query failure. Check console.');
+      }
+    }
+
+    // Modal show/submit methods for .env configurations
+    async function viewEnvFile() {
+      if (!selectedHost) return;
+
+      const overlay = document.getElementById('envModalOverlay');
+      const textarea = document.getElementById('envContents');
+      const badge = document.getElementById('envPermissionBadge');
+      const saveBtn = document.getElementById('saveEnvBtn');
+      const status = document.getElementById('envSaveStatus');
+
+      textarea.value = '';
+      badge.className = 'host-badge';
+      badge.textContent = 'QUERYING...';
+      status.textContent = 'Loading env contents...';
+
+      saveBtn.disabled = true;
+      textarea.disabled = true;
+
+      overlay.classList.add('open');
+
+      try {
+        const response = await fetch(`/api/hosts/${selectedHost.id}/env`, { headers: getAuthHeaders() });
+        if (!response.ok) {
+          const err = await response.json();
+          alert('Failed to access: ' + err.error);
+          overlay.classList.remove('open');
+          return;
+        }
+
+        const data = await response.json();
+        textarea.value = data.content;
+        textarea.disabled = false;
+
+        if (data.permission === 'write') {
+          badge.textContent = 'Read/Write';
+          badge.className = 'host-badge perm-user'; // green
+          saveBtn.disabled = false;
+          textarea.readOnly = false;
+          status.textContent = 'File editable. Modify contents and click save.';
+        } else {
+          badge.textContent = 'Read-Only';
+          badge.className = 'host-badge perm-admin'; // red
+          saveBtn.disabled = true;
+          textarea.readOnly = true;
+          status.textContent = 'View only permission. Saving changes is disabled.';
+        }
+      } catch (err) {
+        console.error('Failed fetching env payload:', err);
+        alert('Networking error loading env. Verify server log.');
+        overlay.classList.remove('open');
+      }
+    }
+
+    function closeEnvModal() {
+      document.getElementById('envModalOverlay').classList.remove('open');
+    }
+
+    async function submitEnvFile() {
+      if (!selectedHost) return;
+
+      const textarea = document.getElementById('envContents');
+      const status = document.getElementById('envSaveStatus');
+      const saveBtn = document.getElementById('saveEnvBtn');
+
+      status.textContent = 'Writing updates...';
+      saveBtn.disabled = true;
+      textarea.disabled = true;
+
+      try {
+        const response = await fetch(`/api/hosts/${selectedHost.id}/env`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ content: textarea.value })
+        });
+
+        if (response.ok) {
+          status.textContent = 'Changes saved successfully.';
+          alert('Success: .env file updated.');
+          closeEnvModal();
+        } else {
+          const err = await response.json();
+          status.textContent = 'Error: ' + err.error;
+          alert('Update failed: ' + err.error);
+        }
+      } catch (err) {
+        console.error('Failed to submit env write request:', err);
+        status.textContent = 'Network write failed.';
+        alert('Network interface failure. Verify backend connection.');
+      } finally {
+        textarea.disabled = false;
+        saveBtn.disabled = false;
       }
     }
   </script>
