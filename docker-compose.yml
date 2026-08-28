@@ -3,7 +3,7 @@ services:
     build: .
     container_name: shipdeck
     ports:
-      - "3000:3000"
+      - "8765:3000"
     environment:
       - PORT=3000
       - AUTH_TYPE=none # Change to 'header' to enable Authelia or OIDC proxy protection

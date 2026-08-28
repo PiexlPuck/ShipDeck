@@ -307,6 +307,91 @@ app.get('/api/hosts/:id/ping', authMiddleware, (req, res) => {
   }
 });
 
+// Get Deployed docker compose containers list
+app.get('/api/hosts/:id/containers', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  const hosts = getHosts();
+  const host = hosts.find(h => h.id === id);
+  if (!host) {
+    return res.status(404).json({ error: 'Host not found' });
+  }
+
+  const hostRole = host.allowedRole || 'admin';
+  if (hostRole === 'admin' && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Forbidden. Access restricted to administrator roles.' });
+  }
+
+  const parseOutput = (stdout) => {
+    const trimmed = stdout.trim();
+    if (!trimmed) return [];
+    try {
+      if (trimmed.startsWith('[')) {
+        return JSON.parse(trimmed);
+      }
+      const lines = trimmed.split('\n').map(l => l.trim()).filter(Boolean);
+      // Try to parse line-by-line JSON (some docker compose versions format logs as separate objects)
+      if (lines[0].startsWith('{')) {
+        return lines.map(l => JSON.parse(l));
+      }
+      throw new Error('Not JSON format');
+    } catch (e) {
+      const lines = trimmed.split('\n').map(l => l.trim()).filter(Boolean);
+      if (lines.length <= 1) return [];
+      const headers = lines[0].toLowerCase().split(/\s{2,}/);
+      return lines.slice(1).map(line => {
+        const parts = line.split(/\s{2,}/);
+        const row = {};
+        headers.forEach((h, idx) => {
+          row[h] = parts[idx] || '';
+        });
+        return {
+          Name: row.name || row.container || parts[0] || '',
+          Service: row.service || '',
+          State: row.status || row.state || parts[5] || '',
+          Ports: row.ports || parts[6] || ''
+        };
+      });
+    }
+  };
+
+  if (host.type === 'local') {
+    exec('docker compose ps --format json || docker-compose ps --format json', { cwd: host.projectDir }, (err, stdout) => {
+      if (!err && stdout.trim()) {
+        return res.json(parseOutput(stdout));
+      }
+      exec('docker compose ps || docker-compose ps', { cwd: host.projectDir }, (plainErr, plainStdout) => {
+        if (plainErr) return res.json([]);
+        return res.json(parseOutput(plainStdout));
+      });
+    });
+  } else {
+    const conn = new Client();
+    conn.on('ready', () => {
+      conn.exec(`cd "${host.projectDir}" && (docker compose ps --format json || docker-compose ps --format json || docker compose ps || docker-compose ps)`, (err, stream) => {
+        if (err) {
+          conn.end();
+          return res.json([]);
+        }
+        let output = '';
+        stream.on('data', (data) => {
+          output += data;
+        }).on('close', (code) => {
+          conn.end();
+          res.json(parseOutput(output));
+        });
+      });
+    }).on('error', () => {
+      res.json([]);
+    }).connect({
+      host: host.ip,
+      port: host.port,
+      username: host.user,
+      privateKey: fs.existsSync(host.sshKeyPath) ? fs.readFileSync(host.sshKeyPath) : host.sshKeyPath,
+      readyTimeout: 5000
+    });
+  }
+});
+
 // Helper to determine active env permissions stage
 function getEnvPermission(host, userContext) {
   if (userContext.role === 'admin') {

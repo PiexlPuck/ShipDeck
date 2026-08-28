@@ -761,6 +761,64 @@
     ::-webkit-scrollbar-thumb:hover {
       background: rgba(255, 255, 255, 0.2);
     }
+
+    /* Container Grid UI Styles */
+    .containers-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 20px;
+    }
+
+    .container-list-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+      margin-top: 12px;
+    }
+
+    .container-item-card {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+
+    .container-item-card:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+      transform: translateY(-2px);
+    }
+
+    .container-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      padding-bottom: 8px;
+    }
+
+    .container-card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-main);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .container-card-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .container-card-meta span {
+      color: var(--text-main);
+      font-weight: 500;
+    }
   </style>
 </head>
 
@@ -858,6 +916,16 @@
           <button class="btn btn-secondary" id="manageEnvBtn" onclick="viewEnvFile()" style="display: none;">
             📝 Manage .env
           </button>
+        </div>
+
+        <!-- Deployed Containers List Panel Section -->
+        <div class="containers-card" id="containersSection" style="display: none;">
+          <h3 style="font-family:'Outfit'; font-size:16px; display:flex; align-items:center; gap:8px;">
+            🐳 Deployed Project Containers
+          </h3>
+          <div id="containersList" class="container-list-grid">
+            <!-- Rendered containers dynamically -->
+          </div>
         </div>
 
         <div class="terminal-container" id="terminalContainer">
@@ -1436,6 +1504,9 @@
       document.getElementById('emptyState').style.display = 'none';
       document.getElementById('contentPanel').style.display = 'flex';
 
+      // Load active project containers status list
+      loadContainers(host.id);
+
       document.getElementById('selectedHostName').textContent = host.name;
 
       let metaText = '';
@@ -1495,6 +1566,7 @@
       term.write(`\r\nPinging Host connection: ${selectedHost.name}...\r\n`);
 
       await pingHostStatus(selectedHost.id);
+      await loadContainers(selectedHost.id);
 
       term.write(`Ping complete. Status refreshed in Sidebar.\r\n\r\n`);
       termStatus.textContent = 'TERMINAL: STANDBY';
@@ -1538,6 +1610,7 @@
         toggleButtons(false);
         wsConn = null;
         pingHostStatus(selectedHost.id);
+        loadContainers(selectedHost.id);
       };
 
       wsConn.onerror = (error) => {
@@ -1856,6 +1929,92 @@
         textarea.disabled = false;
         saveBtn.disabled = false;
       }
+    }
+
+    // Dynamic containers loader and port redirects builder
+    async function loadContainers(hostId) {
+      const containerSec = document.getElementById('containersSection');
+      const containerList = document.getElementById('containersList');
+
+      containerSec.style.display = 'block';
+      containerList.innerHTML = '<div style="grid-column: 1/-1; color: var(--text-muted); font-size:13px;">Inquiring containers status...</div>';
+
+      try {
+        const response = await fetch(`/api/hosts/${hostId}/containers`, { headers: getAuthHeaders() });
+        if (!response.ok) {
+          containerList.innerHTML = '<div style="grid-column: 1/-1; color: var(--error); font-size:13px;">Inquiring failed to acquire stack status.</div>';
+          return;
+        }
+
+        const list = await response.json();
+        containerList.innerHTML = '';
+
+        if (!list || list.length === 0) {
+          containerList.innerHTML = '<div style="grid-column: 1/-1; color: var(--text-muted); font-size:13px; padding: 12px 0;">No active compose container processes running in this environment. Run redeploy to build/start processes.</div>';
+          return;
+        }
+
+        list.forEach(c => {
+          const card = document.createElement('div');
+          card.className = 'container-item-card';
+
+          const name = c.Name || c.name || 'Unnamed container';
+          const service = c.Service || c.service || 'unknown';
+          const state = (c.State || c.state || c.Status || '').toLowerCase();
+          const ports = c.Ports || c.ports || '';
+
+          const isRunning = state.includes('up') || state.includes('running');
+          const badgeClass = isRunning ? 'running' : 'stopped';
+          const stateLabel = isRunning ? 'Running' : 'Stopped';
+
+          // Extract link paths
+          const links = getContainerLinks(ports, selectedHost);
+          let linkButtonsHtml = '';
+          if (links.length > 0) {
+            links.forEach(link => {
+              linkButtonsHtml += `
+                <a href="${link.url}" target="_blank" class="btn btn-secondary font-btn" style="padding: 4px 8px; font-size:11px; margin-top:2px; display:inline-flex; align-items:center; gap:4px; text-decoration:none; color:var(--accent-color); width:fit-content;">
+                  🔗 Open App (Port ${link.port})
+                </a>
+              `;
+            });
+          }
+
+          card.innerHTML = `
+            <div class="container-card-header">
+              <span class="container-card-title" title="${escapeHTML(name)}">${escapeHTML(name)}</span>
+              <span class="container-status-badge ${badgeClass}">${stateLabel}</span>
+            </div>
+            <div class="container-card-meta">
+              <div>Service: <span>${escapeHTML(service)}</span></div>
+              ${ports ? `<div>Exposed Details: <span style="font-family: inherit; font-size:11px;">${escapeHTML(ports)}</span></div>` : ''}
+            </div>
+            ${linkButtonsHtml ? `<div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:4px;">${linkButtonsHtml}</div>` : ''}
+          `;
+          containerList.appendChild(card);
+        });
+
+      } catch (err) {
+        console.error('Error fetching container details:', err);
+        containerList.innerHTML = '<div style="grid-column: 1/-1; color: var(--error); font-size:13px;">Error communicating status. Check terminal/network configurations.</div>';
+      }
+    }
+
+    function getContainerLinks(portsStr, host) {
+      if (!portsStr) return [];
+      const links = [];
+      // Regex detects port patterns: 0.0.0.0:8765->80, :::80->80, 127.0.0.1:4000->80
+      const matches = [...portsStr.matchAll(/(?:0\.0\.0\.0|localhost|127\.0\.0\.1|:::):(\d+)->/g)];
+      const ip = host.type === 'remote' ? host.ip : 'localhost';
+
+      matches.forEach(m => {
+        const port = m[1];
+        links.push({
+          port: port,
+          url: `http://${ip}:${port}`
+        });
+      });
+      return links;
     }
   </script>
 </body>
