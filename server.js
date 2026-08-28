@@ -10,7 +10,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ noServer: true });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8765;
 const HOSTS_FILE = (() => {
   const DATA_DIR = path.join(__dirname, 'data');
   if (!fs.existsSync(DATA_DIR)) {

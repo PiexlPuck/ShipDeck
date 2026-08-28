@@ -3,9 +3,9 @@ services:
     build: .
     container_name: shipdeck
     ports:
-      - "8765:3000"
+      - "8765:8765"
     environment:
-      - PORT=3000
+      - PORT=8765
       - AUTH_TYPE=none # Change to 'header' to enable Authelia or OIDC proxy protection
     volumes:
       # Mount the host Docker socket so ShipDeck can run docker commands on the host system

@@ -22,7 +22,7 @@ COPY index.html ./
 COPY auth_instructions.md ./
 
 # Expose port (default 3000)
-EXPOSE 3000
+EXPOSE 8765
 
 # Start server
 CMD ["node", "server.js"]
