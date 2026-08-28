@@ -60,10 +60,10 @@ function saveHosts(hosts) {
 // Extract User Identity & Role from headers
 function extractUserFromHeaders(headers, isHeaderAuthEnforced) {
   // Support standard Authelia/Keycloak headers
-  let user = headers['remote-user'] || headers['x-forwarded-user'] || headers['x-auth-request-user'] || '';
-  let email = headers['remote-email'] || headers['x-forwarded-email'] || headers['x-auth-request-email'] || '';
-  let name = headers['remote-name'] || headers['x-forwarded-preferred-username'] || headers['x-auth-request-name'] || '';
-  let groupsStr = headers['remote-groups'] || headers['x-forwarded-groups'] || headers['x-auth-request-groups'] || '';
+  let user = headers['remote-user'] || headers['x-forwarded-user'] || headers['x-auth-request-user'] || headers['x-authentik-username'] || '';
+  let email = headers['remote-email'] || headers['x-forwarded-email'] || headers['x-auth-request-email'] || headers['x-authentik-email'] || '';
+  let name = headers['remote-name'] || headers['x-forwarded-preferred-username'] || headers['x-auth-request-name'] || headers['x-authentik-name'] || '';
+  let groupsStr = headers['remote-groups'] || headers['x-forwarded-groups'] || headers['x-auth-request-groups'] || headers['x-authentik-groups'] || '';
 
   // If header auth NOT strictly enforced (development mode/local status),
   // we let the client mock their identity for role testing convenience
