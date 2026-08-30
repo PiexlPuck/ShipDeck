@@ -262,6 +262,17 @@
       color: white;
     }
 
+    .btn-success {
+      background-color: rgba(16, 185, 129, 0.1);
+      color: var(--success);
+      border: 1px solid rgba(16, 185, 129, 0.2);
+    }
+
+    .btn-success:hover:not(:disabled) {
+      background-color: var(--success);
+      color: white;
+    }
+
     .host-list {
       padding: 16px;
       display: flex;
@@ -902,12 +913,18 @@
           </button>
         </div>
 
-        <div class="action-row">
+        <div class="action-row" style="flex-wrap: wrap;">
           <button class="btn btn-secondary" id="gitPullBtn" onclick="runAction('pull')">
             ☁️ Git Pull
           </button>
           <button class="btn btn-primary" id="redeployBtn" onclick="runAction('redeploy')">
             🚀 Redeploy
+          </button>
+          <button class="btn btn-success" id="startBtn" onclick="runAction('start')">
+            ▶️ Start
+          </button>
+          <button class="btn btn-danger" id="stopBtn" onclick="runAction('stop')">
+            ⏹️ Stop
           </button>
           <button class="btn btn-secondary" id="logsBtn" onclick="runAction('logs')">
             📝 View Logs
@@ -1624,6 +1641,8 @@
     function toggleButtons(disabled) {
       document.getElementById('gitPullBtn').disabled = disabled;
       document.getElementById('redeployBtn').disabled = disabled;
+      document.getElementById('startBtn').disabled = disabled;
+      document.getElementById('stopBtn').disabled = disabled;
       document.getElementById('logsBtn').disabled = disabled;
     }
 

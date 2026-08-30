@@ -649,6 +649,10 @@ wss.on('connection', (ws, request) => {
     }
   } else if (action === 'redeploy') {
     commandStr = 'docker compose up -d --build';
+  } else if (action === 'start') {
+    commandStr = 'docker compose start || docker-compose start || docker compose up -d || docker-compose up -d';
+  } else if (action === 'stop') {
+    commandStr = 'docker compose stop || docker-compose stop';
   } else if (action === 'logs') {
     commandStr = 'docker compose logs --tail=100 -f';
   } else {
