@@ -579,6 +579,7 @@ wss.on('connection', (ws, request) => {
   const urlObj = new URL(request.url, `http://${request.headers.host}`);
   const action = urlObj.searchParams.get('action');
   const hostId = urlObj.searchParams.get('hostId');
+  const container = urlObj.searchParams.get('container') || '';
 
   if (!action || !hostId) {
     ws.send('\r\n\x1b[31mError: Missing parameters action or hostId.\x1b[0m\r\n');
@@ -655,6 +656,14 @@ wss.on('connection', (ws, request) => {
     commandStr = 'docker compose stop || docker-compose stop';
   } else if (action === 'logs') {
     commandStr = 'docker compose logs --tail=100 -f';
+  } else if (action === 'container-logs') {
+    if (!container) {
+      ws.send(`\r\n\x1b[31mError: No container/service specified for container-logs action.\x1b[0m\r\n`);
+      ws.close();
+      return;
+    }
+    const cleanContainer = container.replace(/[^a-zA-Z0-9_\-]/g, '');
+    commandStr = `docker compose logs --tail=100 -f ${cleanContainer} || docker-compose logs --tail=100 -f ${cleanContainer}`;
   } else {
     ws.send(`\r\n\x1b[31mError: Invalid action '${action}' requested.\x1b[0m\r\n`);
     ws.close();

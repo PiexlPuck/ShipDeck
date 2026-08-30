@@ -1590,7 +1590,7 @@
     }
 
     // Executed Action
-    function runAction(action) {
+    function runAction(action, containerName = '') {
       if (!selectedHost) return;
 
       if (wsConn) {
@@ -1598,12 +1598,12 @@
       }
 
       document.getElementById('terminalContainer').classList.add('active');
-      document.getElementById('terminalStatus').textContent = `RUNNING: ${action.toUpperCase()}`;
+      document.getElementById('terminalStatus').textContent = `RUNNING: ${action.toUpperCase()}${containerName ? ' (' + containerName + ')' : ''}`;
 
       toggleButtons(true);
 
       term.clear();
-      term.write(`\r\nConnecting to backend websocket stream for '${action}'...\r\n`);
+      term.write(`\r\nConnecting to backend websocket stream for '${action}'${containerName ? ' on container ' + containerName : ''}...\r\n`);
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
@@ -1613,7 +1613,8 @@
         customSimQuery = `&simUser=${encodeURIComponent(usernameVal)}&simRole=${encodeURIComponent(userRole)}`;
       }
 
-      const wsUrl = `${protocol}//${window.location.host}/api/stream?action=${action}&hostId=${selectedHost.id}${customSimQuery}`;
+      const containerParam = containerName ? `&container=${encodeURIComponent(containerName)}` : '';
+      const wsUrl = `${protocol}//${window.location.host}/api/stream?action=${action}&hostId=${selectedHost.id}${containerParam}${customSimQuery}`;
 
       wsConn = new WebSocket(wsUrl);
 
@@ -1999,6 +2000,15 @@
             });
           }
 
+          let logsButtonHtml = '';
+          if (service && service !== 'unknown') {
+            logsButtonHtml = `
+              <button class="btn btn-secondary font-btn" style="padding: 4px 8px; font-size:11px; margin-top:2px; display:inline-flex; align-items:center; gap:4px;" onclick="runAction('container-logs', '${escapeHTML(service)}')">
+                📄 View Logs
+              </button>
+            `;
+          }
+
           card.innerHTML = `
             <div class="container-card-header">
               <span class="container-card-title" title="${escapeHTML(name)}">${escapeHTML(name)}</span>
@@ -2008,7 +2018,10 @@
               <div>Service: <span>${escapeHTML(service)}</span></div>
               ${ports ? `<div>Exposed Details: <span style="font-family: inherit; font-size:11px;">${escapeHTML(ports)}</span></div>` : ''}
             </div>
-            ${linkButtonsHtml ? `<div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:4px;">${linkButtonsHtml}</div>` : ''}
+            <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:4px;">
+              ${linkButtonsHtml}
+              ${logsButtonHtml}
+            </div>
           `;
           containerList.appendChild(card);
         });
