@@ -602,6 +602,173 @@ app.post('/api/hosts/:id/env', authMiddleware, (req, res) => {
   }
 });
 
+// Get Compose file details inside project host
+app.get('/api/hosts/:id/compose', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  const hosts = getHosts();
+  const host = hosts.find(h => h.id === id);
+  if (!host) {
+    return res.status(404).json({ error: 'Host not found' });
+  }
+
+  const permission = getEnvPermission(host, req.user);
+  if (permission === 'none') {
+    return res.status(403).json({ error: 'Forbidden. No access permitted.' });
+  }
+
+  findComposeFile(host.projectDir, host.type, host, (err, filepath, filename) => {
+    if (err) {
+      return res.status(500).json({ error: `Failed to detect compose file: ${err.message}` });
+    }
+
+    if (host.type === 'local') {
+      if (!fs.existsSync(filepath)) {
+        return res.json({ permission, filename, content: '' });
+      }
+      fs.readFile(filepath, 'utf8', (readErr, data) => {
+        if (readErr) {
+          return res.status(500).json({ error: `Failed to read local compose file: ${readErr.message}` });
+        }
+        res.json({ permission, filename, content: data });
+      });
+    } else {
+      const conn = new Client();
+      conn.on('ready', () => {
+        conn.exec(`cat "${filepath}" 2>/dev/null || echo ""`, (execErr, stream) => {
+          if (execErr) {
+            conn.end();
+            return res.status(500).json({ error: `SSH Command execution failed: ${execErr.message}` });
+          }
+          let output = '';
+          stream.on('data', (data) => {
+            output += data;
+            if (output.length > 1000000) { // Safety ceiling: 1MB
+              stream.destroy();
+            }
+          }).on('close', () => {
+            conn.end();
+            res.json({ permission, filename, content: output });
+          });
+        });
+      }).on('error', (connErr) => {
+        res.status(500).json({ error: `SSH Connection failed: ${connErr.message}` });
+      }).connect({
+        host: host.ip,
+        port: host.port,
+        username: host.user,
+        privateKey: fs.existsSync(host.sshKeyPath) ? fs.readFileSync(host.sshKeyPath) : host.sshKeyPath,
+        readyTimeout: 5000
+      });
+    }
+  });
+});
+
+// Update Compose file inside project host
+app.post('/api/hosts/:id/compose', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  const { content } = req.body;
+
+  if (content === undefined) {
+    return res.status(400).json({ error: 'Missing content field in request body.' });
+  }
+
+  const hosts = getHosts();
+  const host = hosts.find(h => h.id === id);
+  if (!host) {
+    return res.status(404).json({ error: 'Host not found' });
+  }
+
+  const permission = getEnvPermission(host, req.user);
+  if (permission !== 'write') {
+    return res.status(403).json({ error: 'Forbidden. Write access is restricted.' });
+  }
+
+  findComposeFile(host.projectDir, host.type, host, (err, filepath, filename) => {
+    if (err) {
+      return res.status(500).json({ error: `Failed to detect compose file: ${err.message}` });
+    }
+
+    if (host.type === 'local') {
+      fs.writeFile(filepath, content, 'utf8', (writeErr) => {
+        if (writeErr) {
+          return res.status(500).json({ error: `Failed to save local compose file: ${writeErr.message}` });
+        }
+        res.json({ message: `${filename} successfully updated.` });
+      });
+    } else {
+      const base64Content = Buffer.from(content).toString('base64');
+      const conn = new Client();
+      conn.on('ready', () => {
+        const cmd = `mkdir -p "${host.projectDir}" && echo "${base64Content}" | base64 -d > "${filepath}"`;
+        conn.exec(cmd, (execErr, stream) => {
+          if (execErr) {
+            conn.end();
+            return res.status(500).json({ error: `SSH write failed: ${execErr.message}` });
+          }
+          stream.on('close', (code) => {
+            conn.end();
+            if (code === 0) {
+              res.json({ message: `${filename} successfully updated remotely.` });
+            } else {
+              res.status(500).json({ error: `Remote write command closed with failure code: ${code}` });
+            }
+          });
+        });
+      }).on('error', (connErr) => {
+        res.status(500).json({ error: `SSH Connection failed: ${connErr.message}` });
+      }).connect({
+        host: host.ip,
+        port: host.port,
+        username: host.user,
+        privateKey: fs.existsSync(host.sshKeyPath) ? fs.readFileSync(host.sshKeyPath) : host.sshKeyPath,
+        readyTimeout: 5000
+      });
+    }
+  });
+});
+
+// Sequentially search for docker compose config files
+function findComposeFile(projectDir, type = 'local', host = null, callback) {
+  const filenames = ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml'];
+  if (type === 'local') {
+    for (const fn of filenames) {
+      const p = path.resolve(projectDir, fn);
+      if (fs.existsSync(p)) {
+        return callback(null, p, fn);
+      }
+    }
+    return callback(null, path.resolve(projectDir, 'docker-compose.yml'), 'docker-compose.yml');
+  } else {
+    // For remote hosts, we execute test checks via SSH
+    const conn = new Client();
+    conn.on('ready', () => {
+      const cmd = `cd "${projectDir}" && ( [ -f docker-compose.yml ] && echo "docker-compose.yml" || ( [ -f docker-compose.yaml ] && echo "docker-compose.yaml" || ( [ -f compose.yml ] && echo "compose.yml" || ( [ -f compose.yaml ] && echo "compose.yaml" || echo "docker-compose.yml" ) ) ) )`;
+      conn.exec(cmd, (err, stream) => {
+        if (err) {
+          conn.end();
+          return callback(err);
+        }
+        let filename = '';
+        stream.on('data', (data) => {
+          filename += data;
+        }).on('close', () => {
+          conn.end();
+          filename = filename.trim() || 'docker-compose.yml';
+          callback(null, `${projectDir}/${filename}`, filename);
+        });
+      });
+    }).on('error', (err) => {
+      callback(err);
+    }).connect({
+      host: host.ip,
+      port: host.port,
+      username: host.user,
+      privateKey: fs.existsSync(host.sshKeyPath) ? fs.readFileSync(host.sshKeyPath) : host.sshKeyPath,
+      readyTimeout: 5000
+    });
+  }
+}
+
 // Upgrade HTTP Server to handle WebSockets
 server.on('upgrade', (request, socket, head) => {
   const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;

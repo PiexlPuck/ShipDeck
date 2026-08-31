@@ -933,6 +933,10 @@
           <button class="btn btn-secondary" id="manageEnvBtn" onclick="viewEnvFile()" style="display: none;">
             📝 Manage .env
           </button>
+          <!-- compose file viewer button -->
+          <button class="btn btn-secondary" id="manageComposeBtn" onclick="viewComposeFile()" style="display: none;">
+            🐳 Manage Compose
+          </button>
         </div>
 
         <!-- Deployed Containers List Panel Section -->
@@ -1111,14 +1115,14 @@
     <div class="modal-container" style="width: 720px; max-width: 90vw;">
       <div class="modal-header">
         <div style="display: flex; align-items: center; gap: 8px;">
-          <h3 class="modal-title">Manage Environment Variables (.env)</h3>
+          <h3 class="modal-title" id="envModalTitle">Manage Environment Variables (.env)</h3>
           <span class="host-badge" id="envPermissionBadge" style="text-transform: uppercase;">NONE</span>
         </div>
         <button class="close-btn" onclick="closeEnvModal()">&times;</button>
       </div>
       <div class="modal-body" style="padding: 16px;">
         <div class="form-group" style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
-          <label for="envContents">File Buffer (.env)</label>
+          <label for="envContents" id="envModalFileLabel">File Buffer (.env)</label>
           <textarea id="envContents" class="form-input"
             style="flex: 1; min-height: 280px; font-family: 'Fira Code', monospace; font-size: 13px; background: #020617; color: #cbd5e1; border-color: var(--border-color); resize: vertical; line-height: 1.5;"
             placeholder="# Add environment configurations..."></textarea>
@@ -1537,10 +1541,13 @@
       // Toggle .env viewer button visibility based on client-side check
       const envPerm = getClientEnvPermission(host);
       const envBtn = document.getElementById('manageEnvBtn');
+      const composeBtn = document.getElementById('manageComposeBtn');
       if (envPerm !== 'none') {
         envBtn.style.display = 'inline-flex';
+        composeBtn.style.display = 'inline-flex';
       } else {
         envBtn.style.display = 'none';
+        composeBtn.style.display = 'none';
       }
 
       term.clear();
@@ -1857,20 +1864,34 @@
       }
     }
 
-    // Modal show/submit methods for .env configurations
-    async function viewEnvFile() {
+    // Modal show/submit methods for .env and compose configurations
+    let activeEditorMode = 'env'; // 'env' or 'compose'
+
+    async function openEditorModal(mode) {
       if (!selectedHost) return;
+      activeEditorMode = mode;
 
       const overlay = document.getElementById('envModalOverlay');
       const textarea = document.getElementById('envContents');
       const badge = document.getElementById('envPermissionBadge');
       const saveBtn = document.getElementById('saveEnvBtn');
       const status = document.getElementById('envSaveStatus');
+      const modalTitle = document.getElementById('envModalTitle');
+      const fileLabel = document.getElementById('envModalFileLabel');
 
       textarea.value = '';
       badge.className = 'host-badge';
       badge.textContent = 'QUERYING...';
-      status.textContent = 'Loading env contents...';
+
+      if (mode === 'env') {
+        modalTitle.textContent = 'Manage Environment Variables (.env)';
+        fileLabel.textContent = 'File Buffer (.env)';
+        status.textContent = 'Loading env contents...';
+      } else {
+        modalTitle.textContent = 'Manage Docker Compose Configuration';
+        fileLabel.textContent = 'File Buffer';
+        status.textContent = 'Loading compose contents...';
+      }
 
       saveBtn.disabled = true;
       textarea.disabled = true;
@@ -1878,7 +1899,8 @@
       overlay.classList.add('open');
 
       try {
-        const response = await fetch(`/api/hosts/${selectedHost.id}/env`, { headers: getAuthHeaders() });
+        const endpoint = mode === 'env' ? 'env' : 'compose';
+        const response = await fetch(`/api/hosts/${selectedHost.id}/${endpoint}`, { headers: getAuthHeaders() });
         if (!response.ok) {
           const err = await response.json();
           alert('Failed to access: ' + err.error);
@@ -1889,6 +1911,11 @@
         const data = await response.json();
         textarea.value = data.content;
         textarea.disabled = false;
+
+        if (mode === 'compose' && data.filename) {
+          modalTitle.textContent = `Manage Docker Compose Config (${data.filename})`;
+          fileLabel.textContent = `File Buffer (${data.filename})`;
+        }
 
         if (data.permission === 'write') {
           badge.textContent = 'Read/Write';
@@ -1904,10 +1931,18 @@
           status.textContent = 'View only permission. Saving changes is disabled.';
         }
       } catch (err) {
-        console.error('Failed fetching env payload:', err);
-        alert('Networking error loading env. Verify server log.');
+        console.error('Failed fetching file payload:', err);
+        alert('Networking error loading file. Verify server log.');
         overlay.classList.remove('open');
       }
+    }
+
+    function viewEnvFile() {
+      openEditorModal('env');
+    }
+
+    function viewComposeFile() {
+      openEditorModal('compose');
     }
 
     function closeEnvModal() {
@@ -1926,7 +1961,8 @@
       textarea.disabled = true;
 
       try {
-        const response = await fetch(`/api/hosts/${selectedHost.id}/env`, {
+        const endpoint = activeEditorMode === 'env' ? 'env' : 'compose';
+        const response = await fetch(`/api/hosts/${selectedHost.id}/${endpoint}`, {
           method: 'POST',
           headers: getAuthHeaders(),
           body: JSON.stringify({ content: textarea.value })
@@ -1934,7 +1970,7 @@
 
         if (response.ok) {
           status.textContent = 'Changes saved successfully.';
-          alert('Success: .env file updated.');
+          alert('Success: file updated.');
           closeEnvModal();
         } else {
           const err = await response.json();
@@ -1942,7 +1978,7 @@
           alert('Update failed: ' + err.error);
         }
       } catch (err) {
-        console.error('Failed to submit env write request:', err);
+        console.error('Failed to submit write request:', err);
         status.textContent = 'Network write failed.';
         alert('Network interface failure. Verify backend connection.');
       } finally {
