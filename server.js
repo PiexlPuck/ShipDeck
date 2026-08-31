@@ -58,6 +58,31 @@ function formatGitUrl(url) {
   }
   return url;
 }
+
+// Mask secret GITHUB_TOKEN or credentials when writing outputs to logs/dashboards
+function maskSecrets(str) {
+  if (!str) return str;
+  // Match HTTPS auth segment: https://token@github.com or https://user:token@github.com
+  let masked = str.replace(/(https?:\/\/)([^:]+):([^@]+)(@github\.com)/gi, '$1$2:********$4');
+  masked = masked.replace(/(https?:\/\/)([^@]+)(@github\.com)/gi, (match, proto, auth, domain) => {
+    if (auth.trim().toLowerCase() === 'git') {
+      return match; // git@github.com type triggers are keys, ignore 
+    }
+    if (auth.includes(':')) {
+      const parts = auth.split(':');
+      return `${proto}${parts[0]}:********${domain}`;
+    }
+    return `${proto}********${domain}`;
+  });
+
+  // Also replace any raw occurrences of GITHUB_TOKEN if present
+  const token = process.env.GITHUB_TOKEN;
+  if (token && token.length > 5) {
+    masked = masked.split(token).join('********');
+  }
+
+  return masked;
+}
 const HOSTS_FILE = (() => {
   const DATA_DIR = path.join(__dirname, 'data');
   if (!fs.existsSync(DATA_DIR)) {
@@ -843,7 +868,7 @@ wss.on('connection', (ws, request) => {
       .replace(/\r?\n/g, '\r\n')
       .replace(/\r\r\n/g, '\r\n');
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send(formatted);
+      ws.send(maskSecrets(formatted));
     }
   };
 
