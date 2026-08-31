@@ -12,25 +12,31 @@ const wss = new WebSocket.Server({ noServer: true });
 
 const PORT = process.env.PORT || 8765;
 
-// Load optional local dashboard .env configs natively
-const rootEnvPath = path.join(__dirname, '.env');
-if (fs.existsSync(rootEnvPath)) {
-  try {
-    const envContent = fs.readFileSync(rootEnvPath, 'utf8');
-    envContent.split(/\r?\n/).forEach(line => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) return;
-      const index = trimmed.indexOf('=');
-      if (index > 0) {
-        const key = trimmed.slice(0, index).trim();
-        const value = trimmed.slice(index + 1).trim().replace(/^['"]|['"]$/g, '');
-        if (!process.env[key]) {
-          process.env[key] = value;
+// Load optional local dashboard .env configs natively from root or mounted data subdirectories
+const envPaths = [
+  path.join(__dirname, '.env'),
+  path.join(__dirname, 'data', '.env'),
+  path.join(process.cwd(), '.env')
+];
+for (const p of envPaths) {
+  if (fs.existsSync(p)) {
+    try {
+      const envContent = fs.readFileSync(p, 'utf8');
+      envContent.split(/\r?\n/).forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return;
+        const index = trimmed.indexOf('=');
+        if (index > 0) {
+          const key = trimmed.slice(0, index).trim();
+          const value = trimmed.slice(index + 1).trim().replace(/^['"]|['"]$/g, '');
+          if (!process.env[key]) {
+            process.env[key] = value;
+          }
         }
-      }
-    });
-  } catch (err) {
-    console.error('Error loading root .env:', err);
+      });
+    } catch (err) {
+      console.error(`Error loading env from ${p}:`, err);
+    }
   }
 }
 

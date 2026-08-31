@@ -4,6 +4,9 @@ services:
     container_name: shipdeck
     ports:
       - "8765:8765"
+    env_file:
+      - path: .env
+        required: false
     environment:
       - PORT=8765
       - AUTH_TYPE=none # Change to 'header' to enable Authelia or OIDC proxy protection
