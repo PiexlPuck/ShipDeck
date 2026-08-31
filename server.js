@@ -11,6 +11,47 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ noServer: true });
 
 const PORT = process.env.PORT || 8765;
+
+// Load optional local dashboard .env configs natively
+const rootEnvPath = path.join(__dirname, '.env');
+if (fs.existsSync(rootEnvPath)) {
+  try {
+    const envContent = fs.readFileSync(rootEnvPath, 'utf8');
+    envContent.split(/\r?\n/).forEach(line => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return;
+      const index = trimmed.indexOf('=');
+      if (index > 0) {
+        const key = trimmed.slice(0, index).trim();
+        const value = trimmed.slice(index + 1).trim().replace(/^['"]|['"]$/g, '');
+        if (!process.env[key]) {
+          process.env[key] = value;
+        }
+      }
+    });
+  } catch (err) {
+    console.error('Error loading root .env:', err);
+  }
+}
+
+// Format Git repository HTTPS clone URL with GitHub Token credentials if configured
+function formatGitUrl(url) {
+  if (!url) return url;
+  const token = process.env.GITHUB_TOKEN;
+  const username = process.env.GITHUB_USERNAME || '';
+  if (!token) return url;
+
+  if (url.includes('github.com') && url.startsWith('http')) {
+    try {
+      const cleanUrl = url.replace(/https?:\/\//, '');
+      const auth = username ? `${username}:${token}` : token;
+      return `https://${auth}@${cleanUrl}`;
+    } catch (e) {
+      return url;
+    }
+  }
+  return url;
+}
 const HOSTS_FILE = (() => {
   const DATA_DIR = path.join(__dirname, 'data');
   if (!fs.existsSync(DATA_DIR)) {
@@ -639,9 +680,10 @@ wss.on('connection', (ws, request) => {
     if (host.type === 'local') {
       const gitDir = path.join(host.projectDir, '.git');
       const isCloneRequired = host.gitUrl && !fs.existsSync(gitDir);
+      const gitUrlFormatted = formatGitUrl(host.gitUrl);
       commandStr = isCloneRequired
-        ? `git clone -b "${host.branch || 'main'}" "${host.gitUrl}" .`
-        : `git checkout "${host.branch || 'main'}" && git pull`;
+        ? `git clone -b "${host.branch || 'main'}" "${gitUrlFormatted}" .`
+        : `git remote set-url origin "${gitUrlFormatted}" 2>/dev/null; git checkout "${host.branch || 'main'}" && git pull`;
       if (!fs.existsSync(host.projectDir)) {
         fs.mkdirSync(host.projectDir, { recursive: true });
       }
@@ -712,7 +754,8 @@ wss.on('connection', (ws, request) => {
       emitLog(`\x1b[32mSSH Connection established. Spawning session...\x1b[0m\r\n`);
       let fullRemoteCommand = '';
       if (action === 'pull' && host.gitUrl) {
-        fullRemoteCommand = `mkdir -p "${host.projectDir}" && cd "${host.projectDir}" && ( [ -d .git ] && ( git checkout "${host.branch || 'main'}" && git pull ) || git clone -b "${host.branch || 'main'}" "${host.gitUrl}" . )`;
+        const gitUrlFormatted = formatGitUrl(host.gitUrl);
+        fullRemoteCommand = `mkdir -p "${host.projectDir}" && cd "${host.projectDir}" && ( [ -d .git ] && ( git remote set-url origin "${gitUrlFormatted}" 2>/dev/null; git checkout "${host.branch || 'main'}" && git pull ) || git clone -b "${host.branch || 'main'}" "${gitUrlFormatted}" . )`;
       } else {
         fullRemoteCommand = `mkdir -p "${host.projectDir}" && cd "${host.projectDir}" && ${commandStr}`;
       }
