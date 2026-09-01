@@ -5,6 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ShipDeck | Central Docker Deployer</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <!-- Google Fonts: Inter & Outfit -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -76,17 +77,16 @@
       gap: 12px;
     }
 
-    .logo-icon {
-      background: linear-gradient(135deg, var(--accent-color), #8b5cf6);
-      width: 36px;
-      height: 36px;
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 800;
-      color: white;
-      box-shadow: 0 0 15px var(--accent-glow);
+    .logo-img {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      filter: drop-shadow(0 0 8px var(--accent-glow));
+      transition: transform 0.2s ease;
+    }
+
+    .logo-img:hover {
+      transform: scale(1.05);
     }
 
     .logo-text {
@@ -847,7 +847,7 @@
 
   <header>
     <div class="logo-container">
-      <div class="logo-icon">S</div>
+      <img src="/favicon.svg" alt="ShipDeck Logo" class="logo-img">
       <div class="logo-text">ShipDeck</div>
     </div>
 
