@@ -481,7 +481,7 @@
       flex: 1;
       display: flex;
       flex-direction: column;
-      min-height: 380px;
+      min-height: 420px;
       position: relative;
       box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5);
     }
@@ -517,7 +517,17 @@
       flex: 1;
       width: 100%;
       height: 100%;
+      min-height: 0;
       overflow: hidden;
+    }
+
+    #terminal .xterm {
+      height: 100%;
+      padding: 4px;
+    }
+
+    #terminal .xterm-screen {
+      width: 100% !important;
     }
 
     /* Setup / Edit Host Panel Overlay */
@@ -1383,14 +1393,29 @@
           white: '#cbd5e1'
         },
         fontFamily: '"Fira Code", monospace',
-        fontSize: 13,
-        rows: 20
+        fontSize: 13
       });
 
       fitAddon = new FitAddon.FitAddon();
       term.loadAddon(fitAddon);
       term.open(document.getElementById('terminal'));
-      fitAddon.fit();
+
+      // Dynamically fit terminal whenever container dimensions change
+      const termContainer = document.getElementById('terminalContainer');
+      if (window.ResizeObserver && termContainer) {
+        const ro = new ResizeObserver(() => {
+          try {
+            if (fitAddon && term) {
+              fitAddon.fit();
+            }
+          } catch (e) { }
+        });
+        ro.observe(termContainer);
+      }
+
+      setTimeout(() => {
+        try { if (fitAddon) fitAddon.fit(); } catch (e) { }
+      }, 50);
 
       term.write('\r\n\x1b[32mShipDeck deployment terminal initialized. Standing by...\x1b[0m\r\n');
     }
@@ -1524,6 +1549,10 @@
 
       document.getElementById('emptyState').style.display = 'none';
       document.getElementById('contentPanel').style.display = 'flex';
+
+      setTimeout(() => {
+        try { if (fitAddon) fitAddon.fit(); } catch (e) { }
+      }, 50);
 
       // Load active project containers status list
       loadContainers(host.id);
