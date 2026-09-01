@@ -875,18 +875,19 @@ wss.on('connection', (ws, request) => {
   // Determine commands to execute based on host action
   let commandStr = '';
   if (action === 'pull') {
+    const targetBranch = host.branch || 'main';
     if (host.type === 'local') {
       const gitDir = path.join(host.projectDir, '.git');
       const isCloneRequired = host.gitUrl && !fs.existsSync(gitDir);
       const gitUrlFormatted = formatGitUrl(host.gitUrl);
       commandStr = isCloneRequired
-        ? `git clone -b "${host.branch || 'main'}" "${gitUrlFormatted}" .`
-        : `git remote set-url origin "${gitUrlFormatted}" 2>/dev/null; git checkout "${host.branch || 'main'}" && git pull`;
+        ? `git clone -b "${targetBranch}" "${gitUrlFormatted}" .`
+        : `git remote set-url origin "${gitUrlFormatted}" 2>/dev/null; git fetch origin && (git checkout "${targetBranch}" || git checkout -b "${targetBranch}" "origin/${targetBranch}") && git pull origin "${targetBranch}"`;
       if (!fs.existsSync(host.projectDir)) {
         fs.mkdirSync(host.projectDir, { recursive: true });
       }
     } else {
-      commandStr = 'git pull';
+      commandStr = `git fetch origin 2>/dev/null; (git checkout "${targetBranch}" || git checkout -b "${targetBranch}" "origin/${targetBranch}") 2>/dev/null; git pull origin "${targetBranch}"`;
     }
   } else if (action === 'redeploy') {
     commandStr = 'docker compose up -d --build';
