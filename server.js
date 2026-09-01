@@ -891,6 +891,8 @@ wss.on('connection', (ws, request) => {
     }
   } else if (action === 'redeploy') {
     commandStr = 'docker compose up -d --build';
+  } else if (action === 'redeploy-app') {
+    commandStr = `services=$(docker compose config --services 2>/dev/null | grep -v -E "db|database|postgres|mysql|mariadb|mongo|redis" | tr '\\n' ' '); if [ -n "$services" ]; then docker compose up -d --build $services; else docker compose up -d --build; fi`;
   } else if (action === 'start') {
     commandStr = 'docker compose start || docker-compose start || docker compose up -d || docker-compose up -d';
   } else if (action === 'stop') {

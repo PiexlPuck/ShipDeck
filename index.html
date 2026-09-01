@@ -928,7 +928,11 @@
             ☁️ Git Pull
           </button>
           <button class="btn btn-primary" id="redeployBtn" onclick="runAction('redeploy')">
-            🚀 Redeploy
+            🚀 Redeploy All
+          </button>
+          <button class="btn btn-secondary" id="redeployAppBtn" onclick="runAction('redeploy-app')"
+            title="Rebuild and restart web/app containers without touching database services">
+            🔄 Redeploy App (Skip DB)
           </button>
           <button class="btn btn-success" id="startBtn" onclick="runAction('start')">
             ▶️ Start
