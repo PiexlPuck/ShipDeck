@@ -101,6 +101,18 @@ const HOSTS_FILE = (() => {
   return target;
 })();
 
+// Serve SVG favicon directly with proper MIME type
+app.get('/favicon.svg', (req, res) => {
+  const svgPath = path.join(__dirname, 'favicon.svg');
+  if (fs.existsSync(svgPath)) {
+    res.setHeader('Content-Type', 'image/svg+xml');
+    return res.sendFile(svgPath);
+  }
+  const defaultSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"><rect width="64" height="64" rx="16" fill="#0b1329"/><path d="M14 20 L32 10 L50 20 L32 30 Z" fill="#3b82f6"/><path d="M14 20 L32 30 L32 50 L14 40 Z" fill="#2563eb"/><path d="M32 30 L50 20 L50 40 L32 50 Z" fill="#06b6d4"/></svg>`;
+  res.setHeader('Content-Type', 'image/svg+xml');
+  res.send(defaultSvg);
+});
+
 // Middleware
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
@@ -892,11 +904,12 @@ wss.on('connection', (ws, request) => {
   } else if (action === 'redeploy') {
     commandStr = 'docker compose up -d --build';
   } else if (action === 'redeploy-app') {
-    commandStr = `services=$(docker compose config --services 2>/dev/null | grep -v -E "db|database|postgres|mysql|mariadb|mongo|redis" | tr '\\n' ' '); if [ -n "$services" ]; then docker compose up -d --build $services; else docker compose up -d --build; fi`;
+    // --no-deps rebuilds and starts app containers without restarting/recreating linked DB dependencies
+    commandStr = 'docker compose up -d --build --no-deps || docker-compose up -d --build --no-deps';
   } else if (action === 'start') {
     commandStr = 'docker compose start || docker-compose start || docker compose up -d || docker-compose up -d';
   } else if (action === 'stop') {
-    commandStr = 'docker compose stop || docker-compose stop';
+    commandStr = 'docker compose stop || docker compose down || docker-compose stop || docker-compose down';
   } else if (action === 'logs') {
     commandStr = 'docker compose logs --tail=100 -f';
   } else if (action === 'container-logs') {

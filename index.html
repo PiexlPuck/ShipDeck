@@ -6,6 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ShipDeck | Central Docker Deployer</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="alternate icon" type="image/svg+xml"
+    href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' width='64' height='64'><rect width='64' height='64' rx='16' fill='%230b1329'/><path d='M14 20 L32 10 L50 20 L32 30 Z' fill='%233b82f6'/><path d='M14 20 L32 30 L32 50 L14 40 Z' fill='%232563eb'/><path d='M32 30 L50 20 L50 40 L32 50 Z' fill='%2306b6d4'/></svg>">
   <!-- Google Fonts: Inter & Outfit -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -847,7 +849,19 @@
 
   <header>
     <div class="logo-container">
-      <img src="/favicon.svg" alt="ShipDeck Logo" class="logo-img">
+      <svg class="logo-img" viewBox="0 0 64 64" width="38" height="38" xmlns="http://www.w3.org/2000/svg">
+        <rect width="64" height="64" rx="16" fill="#0b1329" stroke="#1e293b" stroke-width="1.5" />
+        <g transform="translate(32, 33) scale(0.95)">
+          <path d="M-18 -2 L0 -12 L18 -2 L14 12 L0 18 L-14 12 Z" fill="none" stroke="#3b82f6" stroke-width="2.5"
+            stroke-linejoin="round" />
+          <path d="M-12 -6 L0 -12 L12 -6 L0 0 Z" fill="#3b82f6" opacity="0.9" />
+          <path d="M-12 -6 L0 0 L0 10 L-12 4 Z" fill="#2563eb" opacity="0.6" />
+          <path d="M0 0 L12 -6 L12 4 L0 10 Z" fill="#06b6d4" opacity="0.75" />
+          <line x1="-4" y1="-2" x2="-4" y2="6" stroke="#ffffff" stroke-width="1" opacity="0.5" />
+          <line x1="4" y1="-4" x2="4" y2="4" stroke="#ffffff" stroke-width="1" opacity="0.5" />
+          <circle cx="0" cy="-12" r="2.5" fill="#10b981" />
+        </g>
+      </svg>
       <div class="logo-text">ShipDeck</div>
     </div>
 
