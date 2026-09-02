@@ -927,10 +927,23 @@
       </div>
 
       <div id="contentPanel" style="display: none; height: 100%; flex-direction: column; gap: 24px;">
-        <div class="panel-header">
+        <div class="panel-header" style="align-items: flex-start;">
           <div class="selected-dns">
             <h2 class="selected-title" id="selectedHostName">Staging Environment</h2>
             <div class="selected-meta" id="selectedHostMeta">Staging details...</div>
+            <div id="gitUpdateBar"
+              style="margin-top: 10px; display: flex; align-items: center; gap: 10px; font-size: 13px; flex-wrap: wrap;">
+              <span id="updateBadge"
+                style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">
+                🟢 Up to date
+              </span>
+              <span id="commitHashInfo"
+                style="color: var(--text-muted); font-family: 'Fira Code', monospace; font-size: 12px;"></span>
+              <button class="btn btn-secondary" onclick="openChangelogModal()"
+                style="padding: 3px 10px; font-size: 12px;">
+                📜 View Change Log
+              </button>
+            </div>
           </div>
           <button class="btn btn-secondary" onclick="checkActiveHostStatus()">
             🔄 Ping Host
@@ -1163,329 +1176,346 @@
           <button class="btn btn-primary" id="saveEnvBtn" onclick="submitEnvFile()">Save Config</button>
         </div>
       </div>
-    </div>
-  </div>
+      <!-- Change Log Modal -->
+      <div class="modal-overlay" id="changelogModal" style="display: none;">
+        <div class="modal-content" style="max-width: 620px; width: 90%;">
+          <div class="modal-header">
+            <h3
+              style="margin:0; font-size: 18px; color: var(--text-main); display: flex; align-items: center; gap: 8px;">
+              📜 Recent Commit Change Log
+            </h3>
+            <button class="close-btn" onclick="closeChangelogModal()">×</button>
+          </div>
+          <div class="modal-body" id="changelogList"
+            style="margin-top: 16px; max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
+            <div style="color: var(--text-muted);">Loading commit history...</div>
+          </div>
+          <div class="modal-footer" style="margin-top: 20px; display: flex; justify-content: flex-end;">
+            <button class="btn btn-secondary" onclick="closeChangelogModal()">Close</button>
+          </div>
+        </div>
+      </div>
 
-  <script>
-    let hosts = [];
-    let selectedHost = null;
-    let term = null;
-    let fitAddon = null;
-    let wsConn = null;
+      <script>
+        let hosts = [];
+        let selectedHost = null;
+        let term = null;
+        let fitAddon = null;
+        let wsConn = null;
 
-    // Custom select widgets helper functions
-    function toggleCustomDropdown(dropdownId) {
-      const container = document.getElementById(dropdownId);
-      if (!container) return;
-      const trigger = container.querySelector('.custom-select-trigger');
-      const options = container.querySelector('.custom-select-options');
+        // Custom select widgets helper functions
+        function toggleCustomDropdown(dropdownId) {
+          const container = document.getElementById(dropdownId);
+          if (!container) return;
+          const trigger = container.querySelector('.custom-select-trigger');
+          const options = container.querySelector('.custom-select-options');
 
-      // Toggle current
-      const isOpen = options.classList.contains('open');
+          // Toggle current
+          const isOpen = options.classList.contains('open');
 
-      // Close all
-      document.querySelectorAll('.custom-select-options').forEach(menu => {
-        menu.classList.remove('open');
-      });
-      document.querySelectorAll('.custom-select-trigger').forEach(trig => {
-        trig.classList.remove('active');
-      });
+          // Close all
+          document.querySelectorAll('.custom-select-options').forEach(menu => {
+            menu.classList.remove('open');
+          });
+          document.querySelectorAll('.custom-select-trigger').forEach(trig => {
+            trig.classList.remove('active');
+          });
 
-      if (!isOpen) {
-        trigger.classList.add('active');
-        options.classList.add('open');
-      }
-    }
-
-    function selectCustomDropdownOption(dropdownId, val, label) {
-      const container = document.getElementById(dropdownId);
-      if (!container) return;
-      const hiddenInput = container.querySelector('input[type="hidden"]');
-      const triggerText = container.querySelector('.custom-select-value');
-
-      hiddenInput.value = val;
-      triggerText.textContent = label;
-
-      container.querySelectorAll('.custom-select-option').forEach(opt => {
-        if (opt.getAttribute('data-value') === val) {
-          opt.classList.add('selected');
-        } else {
-          opt.classList.remove('selected');
-        }
-      });
-
-      const options = container.querySelector('.custom-select-options');
-      const trigger = container.querySelector('.custom-select-trigger');
-      options.classList.remove('open');
-      trigger.classList.remove('active');
-
-      // Call callbacks if any
-      if (hiddenInput.id === 'simRoleSelect') {
-        changeSimulatedRole();
-      } else if (hiddenInput.id === 'hostType') {
-        toggleHostTypeFields();
-      }
-    }
-
-    function syncCustomDropdown(dropdownId) {
-      const container = document.getElementById(dropdownId);
-      if (!container) return;
-      const hiddenInput = container.querySelector('input[type="hidden"]');
-      const triggerText = container.querySelector('.custom-select-value');
-      const val = hiddenInput.value;
-
-      let foundLabel = val;
-      container.querySelectorAll('.custom-select-option').forEach(opt => {
-        if (opt.getAttribute('data-value') === val) {
-          opt.classList.add('selected');
-          foundLabel = opt.textContent;
-        } else {
-          opt.classList.remove('selected');
-        }
-      });
-      triggerText.textContent = foundLabel;
-    }
-
-    // Window global clicks listener to dismiss select popups
-    window.addEventListener('click', (e) => {
-      if (!e.target.closest('.custom-select-container')) {
-        document.querySelectorAll('.custom-select-options').forEach(menu => {
-          menu.classList.remove('open');
-        });
-        document.querySelectorAll('.custom-select-trigger').forEach(trig => {
-          trig.classList.remove('active');
-        });
-      }
-    });
-
-    // Simulation / Auth identities
-    let authEnabled = false;
-    let userRole = 'admin'; // local fallback role
-    let usernameVal = 'dev-admin';
-    let userGroups = [];
-    let devModeActive = false;
-
-    // Run when page loads
-    window.onload = async () => {
-      initTerminal();
-      await fetchAuthStatus();
-      await loadHosts();
-      await checkDockerSocketStatus();
-
-      window.addEventListener('resize', () => {
-        if (fitAddon) fitAddon.fit();
-      });
-    };
-
-    // Construct headers including local role simulation overrides
-    function getAuthHeaders() {
-      const headers = { 'Content-Type': 'application/json' };
-      if (devModeActive) {
-        headers['x-dev-user'] = usernameVal;
-        headers['x-dev-role'] = userRole;
-        headers['x-dev-groups'] = userRole === 'admin' ? 'admins' : 'users';
-      }
-      return headers;
-    }
-
-    // Keep session auth info updated
-    async function fetchAuthStatus() {
-      try {
-        const response = await fetch('/api/auth-status', { headers: getAuthHeaders() });
-        const data = await response.json();
-
-        authEnabled = data.authEnabled;
-        devModeActive = !authEnabled;
-
-        const profileEl = document.getElementById('userProfile');
-        const devSimEl = document.getElementById('devSimControl');
-
-        if (devModeActive) {
-          // Show dev role switch controls in local sandbox mode
-          devSimEl.style.display = 'flex';
-          document.getElementById('simRoleSelect').value = userRole;
-          syncCustomDropdown('simRoleDropdown');
-        } else {
-          devSimEl.style.display = 'none';
-        }
-
-        if (data.user) {
-          profileEl.style.display = 'flex';
-          document.getElementById('userNameDisplay').textContent = data.user.name || data.user.username;
-          document.getElementById('avatarLetter').textContent = (data.user.name || data.user.username).charAt(0).toUpperCase();
-
-          let detailsText = data.authEnabled ? 'Authenticated via Proxy' : 'Local Dev Mode';
-          detailsText += ` [${data.user.role.toUpperCase()}]`;
-          if (data.user.groups.length > 0) {
-            detailsText += ` (${data.user.groups.join(', ')})`;
+          if (!isOpen) {
+            trigger.classList.add('active');
+            options.classList.add('open');
           }
-          document.getElementById('userDetailsDisplay').textContent = detailsText;
-
-          // Store active roles locally to customize UI visibility
-          userRole = data.user.role;
-          usernameVal = data.user.username;
-          userGroups = data.user.groups || [];
         }
 
-        adjustUIPermissions();
-      } catch (err) {
-        console.error('Error fetching Auth Status:', err);
-      }
-    }
+        function selectCustomDropdownOption(dropdownId, val, label) {
+          const container = document.getElementById(dropdownId);
+          if (!container) return;
+          const hiddenInput = container.querySelector('input[type="hidden"]');
+          const triggerText = container.querySelector('.custom-select-value');
 
-    // Adjust visibility of Admin only actions
-    function adjustUIPermissions() {
-      const addBtn = document.getElementById('addHostBtn');
-      if (userRole === 'admin') {
-        addBtn.style.display = 'inline-flex';
-      } else {
-        addBtn.style.display = 'none';
-      }
-    }
+          hiddenInput.value = val;
+          triggerText.textContent = label;
 
-    // Handle Local mode role simulator changes
-    async function changeSimulatedRole() {
-      const selected = document.getElementById('simRoleSelect').value;
-      userRole = selected;
-      usernameVal = selected === 'admin' ? 'dev-admin' : 'dev-user';
-      userGroups = selected === 'admin' ? ['admins'] : ['users'];
-
-      // Close open active ws
-      if (wsConn) wsConn.close();
-
-      // Recalibrate UI
-      await fetchAuthStatus();
-      await loadHosts();
-      await checkDockerSocketStatus();
-
-      // Clear panel if selected host is no longer visible to user role
-      if (selectedHost) {
-        const stillAllowed = hosts.some(h => h.id === selectedHost.id);
-        if (!stillAllowed) {
-          selectedHost = null;
-          document.getElementById('contentPanel').style.display = 'none';
-          document.getElementById('emptyState').style.display = 'flex';
-        }
-      }
-
-      term.clear();
-      term.write(`\r\n\x1b[33mSwitched role simulator to: ${userRole.toUpperCase()} (Bypassing proxy: ${devModeActive})\x1b[0m\r\n`);
-    }
-
-    // Docker Daemon Socket detection
-    async function checkDockerSocketStatus() {
-      try {
-        const response = await fetch('/api/system-status', { headers: getAuthHeaders() });
-        const data = await response.json();
-        const dot = document.getElementById('dockerSocketDot');
-        const text = document.getElementById('dockerSocketText');
-
-        if (data.dockerConnected) {
-          dot.className = 'status-dot online';
-          text.innerHTML = '<span style="color:var(--success)">Docker Daemon Connected</span>';
-        } else {
-          dot.className = 'status-dot offline';
-          text.innerHTML = '<span style="color:var(--error)" title="' + escapeHTML(data.message) + '">Docker Engine Disconnected</span>';
-        }
-      } catch (err) {
-        document.getElementById('dockerSocketDot').className = 'status-dot offline';
-        document.getElementById('dockerSocketText').textContent = 'Docker Socket Local Error';
-      }
-    }
-
-    // Initialize the Xterm.js terminal instance
-    function initTerminal() {
-      term = new Terminal({
-        cursorBlink: true,
-        theme: {
-          background: '#020617',
-          foreground: '#f8fafc',
-          cursor: '#3b82f6',
-          black: '#0f172a',
-          red: '#f43f5e',
-          green: '#10b981',
-          yellow: '#f59e0b',
-          blue: '#3b82f6',
-          magenta: '#a855f7',
-          cyan: '#06b6d4',
-          white: '#cbd5e1'
-        },
-        fontFamily: '"Fira Code", monospace',
-        fontSize: 13
-      });
-
-      fitAddon = new FitAddon.FitAddon();
-      term.loadAddon(fitAddon);
-      term.open(document.getElementById('terminal'));
-
-      // Dynamically fit terminal whenever container dimensions change
-      const termContainer = document.getElementById('terminalContainer');
-      if (window.ResizeObserver && termContainer) {
-        const ro = new ResizeObserver(() => {
-          try {
-            if (fitAddon && term) {
-              fitAddon.fit();
+          container.querySelectorAll('.custom-select-option').forEach(opt => {
+            if (opt.getAttribute('data-value') === val) {
+              opt.classList.add('selected');
+            } else {
+              opt.classList.remove('selected');
             }
-          } catch (e) { }
-        });
-        ro.observe(termContainer);
-      }
+          });
 
-      setTimeout(() => {
-        try { if (fitAddon) fitAddon.fit(); } catch (e) { }
-      }, 50);
+          const options = container.querySelector('.custom-select-options');
+          const trigger = container.querySelector('.custom-select-trigger');
+          options.classList.remove('open');
+          trigger.classList.remove('active');
 
-      term.write('\r\n\x1b[32mShipDeck deployment terminal initialized. Standing by...\x1b[0m\r\n');
-    }
-
-    // Toggle fields based on connection type
-    function toggleHostTypeFields() {
-      const type = document.getElementById('hostType').value;
-      const remoteFields = document.getElementById('remoteFields');
-      if (type === 'remote') {
-        remoteFields.classList.add('visible');
-      } else {
-        remoteFields.classList.remove('visible');
-      }
-    }
-
-    // Get hosts from API
-    async function loadHosts() {
-      try {
-        const response = await fetch('/api/hosts', { headers: getAuthHeaders() });
-        if (response.ok) {
-          hosts = await response.json();
-          renderHostList();
-        } else {
-          hosts = [];
-          renderHostList();
+          // Call callbacks if any
+          if (hiddenInput.id === 'simRoleSelect') {
+            changeSimulatedRole();
+          } else if (hiddenInput.id === 'hostType') {
+            toggleHostTypeFields();
+          }
         }
-      } catch (err) {
-        console.error('Error loading hosts:', err);
-      }
-    }
 
-    // Render left sidebar
-    function renderHostList() {
-      const container = document.getElementById('hostList');
-      container.innerHTML = '';
+        function syncCustomDropdown(dropdownId) {
+          const container = document.getElementById(dropdownId);
+          if (!container) return;
+          const hiddenInput = container.querySelector('input[type="hidden"]');
+          const triggerText = container.querySelector('.custom-select-value');
+          const val = hiddenInput.value;
 
-      if (hosts.length === 0) {
-        container.innerHTML = '<div style="padding:24px; color:var(--text-muted); text-align:center; font-size:13px;">No accessible host environments.</div>';
-        return;
-      }
+          let foundLabel = val;
+          container.querySelectorAll('.custom-select-option').forEach(opt => {
+            if (opt.getAttribute('data-value') === val) {
+              opt.classList.add('selected');
+              foundLabel = opt.textContent;
+            } else {
+              opt.classList.remove('selected');
+            }
+          });
+          triggerText.textContent = foundLabel;
+        }
 
-      hosts.forEach(host => {
-        const item = document.createElement('div');
-        item.className = `host-item ${selectedHost && selectedHost.id === host.id ? 'active' : ''}`;
-        item.onclick = (e) => {
-          selectHost(host);
+        // Window global clicks listener to dismiss select popups
+        window.addEventListener('click', (e) => {
+          if (!e.target.closest('.custom-select-container')) {
+            document.querySelectorAll('.custom-select-options').forEach(menu => {
+              menu.classList.remove('open');
+            });
+            document.querySelectorAll('.custom-select-trigger').forEach(trig => {
+              trig.classList.remove('active');
+            });
+          }
+        });
+
+        // Simulation / Auth identities
+        let authEnabled = false;
+        let userRole = 'admin'; // local fallback role
+        let usernameVal = 'dev-admin';
+        let userGroups = [];
+        let devModeActive = false;
+
+        // Run when page loads
+        window.onload = async () => {
+          initTerminal();
+          await fetchAuthStatus();
+          await loadHosts();
+          await checkDockerSocketStatus();
+
+          window.addEventListener('resize', () => {
+            if (fitAddon) fitAddon.fit();
+          });
         };
 
-        const isRemote = host.type === 'remote';
-        const displayRoleBadge = host.allowedRole || 'admin';
+        // Construct headers including local role simulation overrides
+        function getAuthHeaders() {
+          const headers = { 'Content-Type': 'application/json' };
+          if (devModeActive) {
+            headers['x-dev-user'] = usernameVal;
+            headers['x-dev-role'] = userRole;
+            headers['x-dev-groups'] = userRole === 'admin' ? 'admins' : 'users';
+          }
+          return headers;
+        }
 
-        item.innerHTML = `
+        // Keep session auth info updated
+        async function fetchAuthStatus() {
+          try {
+            const response = await fetch('/api/auth-status', { headers: getAuthHeaders() });
+            const data = await response.json();
+
+            authEnabled = data.authEnabled;
+            devModeActive = !authEnabled;
+
+            const profileEl = document.getElementById('userProfile');
+            const devSimEl = document.getElementById('devSimControl');
+
+            if (devModeActive) {
+              // Show dev role switch controls in local sandbox mode
+              devSimEl.style.display = 'flex';
+              document.getElementById('simRoleSelect').value = userRole;
+              syncCustomDropdown('simRoleDropdown');
+            } else {
+              devSimEl.style.display = 'none';
+            }
+
+            if (data.user) {
+              profileEl.style.display = 'flex';
+              document.getElementById('userNameDisplay').textContent = data.user.name || data.user.username;
+              document.getElementById('avatarLetter').textContent = (data.user.name || data.user.username).charAt(0).toUpperCase();
+
+              let detailsText = data.authEnabled ? 'Authenticated via Proxy' : 'Local Dev Mode';
+              detailsText += ` [${data.user.role.toUpperCase()}]`;
+              if (data.user.groups.length > 0) {
+                detailsText += ` (${data.user.groups.join(', ')})`;
+              }
+              document.getElementById('userDetailsDisplay').textContent = detailsText;
+
+              // Store active roles locally to customize UI visibility
+              userRole = data.user.role;
+              usernameVal = data.user.username;
+              userGroups = data.user.groups || [];
+            }
+
+            adjustUIPermissions();
+          } catch (err) {
+            console.error('Error fetching Auth Status:', err);
+          }
+        }
+
+        // Adjust visibility of Admin only actions
+        function adjustUIPermissions() {
+          const addBtn = document.getElementById('addHostBtn');
+          if (userRole === 'admin') {
+            addBtn.style.display = 'inline-flex';
+          } else {
+            addBtn.style.display = 'none';
+          }
+        }
+
+        // Handle Local mode role simulator changes
+        async function changeSimulatedRole() {
+          const selected = document.getElementById('simRoleSelect').value;
+          userRole = selected;
+          usernameVal = selected === 'admin' ? 'dev-admin' : 'dev-user';
+          userGroups = selected === 'admin' ? ['admins'] : ['users'];
+
+          // Close open active ws
+          if (wsConn) wsConn.close();
+
+          // Recalibrate UI
+          await fetchAuthStatus();
+          await loadHosts();
+          await checkDockerSocketStatus();
+
+          // Clear panel if selected host is no longer visible to user role
+          if (selectedHost) {
+            const stillAllowed = hosts.some(h => h.id === selectedHost.id);
+            if (!stillAllowed) {
+              selectedHost = null;
+              document.getElementById('contentPanel').style.display = 'none';
+              document.getElementById('emptyState').style.display = 'flex';
+            }
+          }
+
+          term.clear();
+          term.write(`\r\n\x1b[33mSwitched role simulator to: ${userRole.toUpperCase()} (Bypassing proxy: ${devModeActive})\x1b[0m\r\n`);
+        }
+
+        // Docker Daemon Socket detection
+        async function checkDockerSocketStatus() {
+          try {
+            const response = await fetch('/api/system-status', { headers: getAuthHeaders() });
+            const data = await response.json();
+            const dot = document.getElementById('dockerSocketDot');
+            const text = document.getElementById('dockerSocketText');
+
+            if (data.dockerConnected) {
+              dot.className = 'status-dot online';
+              text.innerHTML = '<span style="color:var(--success)">Docker Daemon Connected</span>';
+            } else {
+              dot.className = 'status-dot offline';
+              text.innerHTML = '<span style="color:var(--error)" title="' + escapeHTML(data.message) + '">Docker Engine Disconnected</span>';
+            }
+          } catch (err) {
+            document.getElementById('dockerSocketDot').className = 'status-dot offline';
+            document.getElementById('dockerSocketText').textContent = 'Docker Socket Local Error';
+          }
+        }
+
+        // Initialize the Xterm.js terminal instance
+        function initTerminal() {
+          term = new Terminal({
+            cursorBlink: true,
+            theme: {
+              background: '#020617',
+              foreground: '#f8fafc',
+              cursor: '#3b82f6',
+              black: '#0f172a',
+              red: '#f43f5e',
+              green: '#10b981',
+              yellow: '#f59e0b',
+              blue: '#3b82f6',
+              magenta: '#a855f7',
+              cyan: '#06b6d4',
+              white: '#cbd5e1'
+            },
+            fontFamily: '"Fira Code", monospace',
+            fontSize: 13
+          });
+
+          fitAddon = new FitAddon.FitAddon();
+          term.loadAddon(fitAddon);
+          term.open(document.getElementById('terminal'));
+
+          // Dynamically fit terminal whenever container dimensions change
+          const termContainer = document.getElementById('terminalContainer');
+          if (window.ResizeObserver && termContainer) {
+            const ro = new ResizeObserver(() => {
+              try {
+                if (fitAddon && term) {
+                  fitAddon.fit();
+                }
+              } catch (e) { }
+            });
+            ro.observe(termContainer);
+          }
+
+          setTimeout(() => {
+            try { if (fitAddon) fitAddon.fit(); } catch (e) { }
+          }, 50);
+
+          term.write('\r\n\x1b[32mShipDeck deployment terminal initialized. Standing by...\x1b[0m\r\n');
+        }
+
+        // Toggle fields based on connection type
+        function toggleHostTypeFields() {
+          const type = document.getElementById('hostType').value;
+          const remoteFields = document.getElementById('remoteFields');
+          if (type === 'remote') {
+            remoteFields.classList.add('visible');
+          } else {
+            remoteFields.classList.remove('visible');
+          }
+        }
+
+        // Get hosts from API
+        async function loadHosts() {
+          try {
+            const response = await fetch('/api/hosts', { headers: getAuthHeaders() });
+            if (response.ok) {
+              hosts = await response.json();
+              renderHostList();
+            } else {
+              hosts = [];
+              renderHostList();
+            }
+          } catch (err) {
+            console.error('Error loading hosts:', err);
+          }
+        }
+
+        // Render left sidebar
+        function renderHostList() {
+          const container = document.getElementById('hostList');
+          container.innerHTML = '';
+
+          if (hosts.length === 0) {
+            container.innerHTML = '<div style="padding:24px; color:var(--text-muted); text-align:center; font-size:13px;">No accessible host environments.</div>';
+            return;
+          }
+
+          hosts.forEach(host => {
+            const item = document.createElement('div');
+            item.className = `host-item ${selectedHost && selectedHost.id === host.id ? 'active' : ''}`;
+            item.onclick = (e) => {
+              selectHost(host);
+            };
+
+            const isRemote = host.type === 'remote';
+            const displayRoleBadge = host.allowedRole || 'admin';
+
+            item.innerHTML = `
           <div class="host-info-header">
             <div class="host-name">${escapeHTML(host.name)}</div>
             <div class="host-type-badges">
@@ -1512,587 +1542,662 @@
             ` : ''}
           </div>
         `;
-        container.appendChild(item);
+            container.appendChild(item);
 
-        pingHostStatus(host.id);
-      });
-    }
-
-    function escapeHTML(str) {
-      if (!str) return '';
-      return str.replace(/[&<>'"]/g,
-        tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
-      );
-    }
-
-    async function pingHostStatus(hostId) {
-      try {
-        const response = await fetch(`/api/hosts/${hostId}/ping`, { headers: getAuthHeaders() });
-        const data = await response.json();
-        const statusEl = document.getElementById(`status-${hostId}`);
-        const versionEl = document.getElementById(`version-${hostId}`);
-        if (!statusEl) return;
-
-        if (data.status === 'Online') {
-          statusEl.innerHTML = `<span class="status-dot online"></span> <span style="color:var(--success)">Online</span>`;
-        } else if (data.status === 'Error') {
-          statusEl.innerHTML = `<span class="status-dot error"></span> <span style="color:var(--warning)" title="${escapeHTML(data.message)}">Dir Alert</span>`;
-        } else {
-          statusEl.innerHTML = `<span class="status-dot offline"></span> <span style="color:var(--error)" title="${escapeHTML(data.message)}">Offline</span>`;
+            pingHostStatus(host.id);
+          });
         }
 
-        if (versionEl) {
-          if (data.version) {
-            versionEl.innerHTML = `🏷️ ${escapeHTML(data.version)}`;
+        function escapeHTML(str) {
+          if (!str) return '';
+          return str.replace(/[&<>'"]/g,
+            tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+          );
+        }
+
+        async function pingHostStatus(hostId) {
+          try {
+            const response = await fetch(`/api/hosts/${hostId}/ping`, { headers: getAuthHeaders() });
+            const data = await response.json();
+            const statusEl = document.getElementById(`status-${hostId}`);
+            const versionEl = document.getElementById(`version-${hostId}`);
+            if (!statusEl) return;
+
+            if (data.status === 'Online') {
+              statusEl.innerHTML = `<span class="status-dot online"></span> <span style="color:var(--success)">Online</span>`;
+            } else if (data.status === 'Degraded') {
+              statusEl.innerHTML = `<span class="status-dot checking" style="background:#f59e0b; box-shadow: 0 0 8px rgba(245,158,11,0.5);"></span> <span style="color:var(--warning)" title="${escapeHTML(data.message)}">Degraded (${data.containersRunning}/${data.containersCount})</span>`;
+            } else if (data.status === 'Error') {
+              statusEl.innerHTML = `<span class="status-dot error"></span> <span style="color:var(--warning)" title="${escapeHTML(data.message)}">Dir Alert</span>`;
+            } else {
+              statusEl.innerHTML = `<span class="status-dot offline"></span> <span style="color:var(--error)" title="${escapeHTML(data.message)}">Offline ${data.containersCount ? '(' + data.containersRunning + '/' + data.containersCount + ')' : ''}</span>`;
+            }
+
+            if (versionEl) {
+              if (data.version) {
+                versionEl.innerHTML = `🏷️ ${escapeHTML(data.version)}`;
+              } else {
+                versionEl.innerHTML = `🏷️ No version info available`;
+              }
+            }
+          } catch (err) {
+            const statusEl = document.getElementById(`status-${hostId}`);
+            const versionEl = document.getElementById(`version-${hostId}`);
+            if (statusEl) {
+              statusEl.innerHTML = `<span class="status-dot offline"></span> <span style="color:var(--error)">Offline</span>`;
+            }
+            if (versionEl) {
+              versionEl.innerHTML = `🏷️ Connection Error`;
+            }
+          }
+        }
+
+        let activeChangelog = [];
+
+        async function fetchGitStatus(hostId) {
+          const badge = document.getElementById('updateBadge');
+          const hashInfo = document.getElementById('commitHashInfo');
+          if (!badge) return;
+
+          badge.style.background = 'rgba(156, 163, 175, 0.15)';
+          badge.style.color = 'var(--text-muted)';
+          badge.style.borderColor = 'rgba(156, 163, 175, 0.3)';
+          badge.innerHTML = `🔄 Checking updates...`;
+
+          try {
+            const res = await fetch(`/api/hosts/${hostId}/git-status`, { headers: getAuthHeaders() });
+            const data = await res.json();
+            activeChangelog = data.changelog || [];
+
+            if (data.currentCommit) {
+              hashInfo.textContent = `Commit: ${data.currentCommit} (${data.branch || 'main'})`;
+            } else {
+              hashInfo.textContent = '';
+            }
+
+            if (data.hasUpdate) {
+              badge.style.background = 'rgba(239, 68, 68, 0.15)';
+              badge.style.color = '#f87171';
+              badge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+              badge.style.cursor = 'pointer';
+              badge.onclick = () => runAction('pull');
+              badge.innerHTML = `🔔 Update Available (${data.remoteCommit}) - Click Git Pull`;
+            } else {
+              badge.style.background = 'rgba(16, 185, 129, 0.15)';
+              badge.style.color = '#10b981';
+              badge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+              badge.style.cursor = 'default';
+              badge.onclick = null;
+              badge.innerHTML = `🟢 Up to date`;
+            }
+          } catch (e) {
+            badge.style.background = 'rgba(156, 163, 175, 0.15)';
+            badge.style.color = 'var(--text-muted)';
+            badge.innerHTML = `⚪ Git status offline`;
+            hashInfo.textContent = '';
+          }
+        }
+
+        function openChangelogModal() {
+          const modal = document.getElementById('changelogModal');
+          const list = document.getElementById('changelogList');
+          modal.style.display = 'flex';
+
+          if (!activeChangelog || activeChangelog.length === 0) {
+            list.innerHTML = `<div style="color: var(--text-muted); font-size: 13px;">No recent commit history available for this environment.</div>`;
+            return;
+          }
+
+          list.innerHTML = activeChangelog.map(c => `
+            <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; font-size: 13px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span style="font-family: 'Fira Code', monospace; font-weight: 600; color: var(--accent-color);">${escapeHTML(c.hash)}</span>
+                <span style="font-size: 11px; color: var(--text-muted);">${escapeHTML(c.date)}</span>
+              </div>
+              <div style="color: var(--text-main); font-weight: 500; margin-bottom: 4px;">${escapeHTML(c.subject)}</div>
+              <div style="font-size: 11px; color: var(--text-muted);">Author: ${escapeHTML(c.author)}</div>
+            </div>
+          `).join('');
+        }
+
+        function closeChangelogModal() {
+          document.getElementById('changelogModal').style.display = 'none';
+        }
+
+        // Select active environment
+        function selectHost(host) {
+          selectedHost = host;
+          renderHostList();
+
+          document.getElementById('emptyState').style.display = 'none';
+          document.getElementById('contentPanel').style.display = 'flex';
+
+          setTimeout(() => {
+            try { if (fitAddon) fitAddon.fit(); } catch (e) { }
+          }, 50);
+
+          // Load active project containers status list and git update status
+          loadContainers(host.id);
+          fetchGitStatus(host.id);
+
+          document.getElementById('selectedHostName').textContent = host.name;
+
+          let metaText = '';
+          if (host.type === 'remote') {
+            metaText = `Remote Host SSH: ${host.user}@${host.ip}:${host.port} | Path: ${host.projectDir} | Branch: ${host.branch || 'main'} | Access: ${host.allowedRole.toUpperCase()}`;
           } else {
-            versionEl.innerHTML = `🏷️ No version info available`;
+            metaText = `Local Deployment | Path: ${host.projectDir} | Branch: ${host.branch || 'main'} | Access: ${host.allowedRole.toUpperCase()}`;
+          }
+          document.getElementById('selectedHostMeta').textContent = metaText;
+
+          // Toggle .env viewer button visibility based on client-side check
+          const envPerm = getClientEnvPermission(host);
+          const envBtn = document.getElementById('manageEnvBtn');
+          const composeBtn = document.getElementById('manageComposeBtn');
+          if (envPerm !== 'none') {
+            envBtn.style.display = 'inline-flex';
+            composeBtn.style.display = 'inline-flex';
+          } else {
+            envBtn.style.display = 'none';
+            composeBtn.style.display = 'none';
+          }
+
+          term.clear();
+          term.write(`\r\n\x1b[32mSwitched to environment: ${host.name}\x1b[0m\r\n`);
+          term.write(`\x1b[33mSelect git pull, redeploy, or view logs stream to execute.\x1b[0m\r\n\r\n`);
+
+          if (wsConn) {
+            wsConn.close();
           }
         }
-      } catch (err) {
-        const statusEl = document.getElementById(`status-${hostId}`);
-        const versionEl = document.getElementById(`version-${hostId}`);
-        if (statusEl) {
-          statusEl.innerHTML = `<span class="status-dot offline"></span> <span style="color:var(--error)">Offline</span>`;
+
+        function getClientEnvPermission(host) {
+          if (userRole === 'admin') return 'write';
+          const policy = host.envPermissions || { default: 'none', users: {}, groups: {} };
+          const username = usernameVal ? usernameVal.toLowerCase() : null;
+
+          if (username && policy.users && policy.users[username]) {
+            return policy.users[username];
+          }
+
+          if (userGroups && policy.groups) {
+            let highest = 'none';
+            for (const group of userGroups) {
+              const rule = policy.groups[group];
+              if (rule) {
+                if (rule === 'write') highest = 'write';
+                else if (rule === 'read' && highest !== 'write') highest = 'read';
+              }
+            }
+            if (highest !== 'none') return highest;
+          }
+
+          return policy.default || 'none';
         }
-        if (versionEl) {
-          versionEl.innerHTML = `🏷️ Connection Error`;
+
+        async function checkActiveHostStatus() {
+          if (!selectedHost) return;
+          const termStatus = document.getElementById('terminalStatus');
+          termStatus.textContent = 'PROBING ENVIRONMENT...';
+          term.write(`\r\nPinging Host connection: ${selectedHost.name}...\r\n`);
+
+          await pingHostStatus(selectedHost.id);
+          await loadContainers(selectedHost.id);
+
+          term.write(`Ping complete. Status refreshed in Sidebar.\r\n\r\n`);
+          termStatus.textContent = 'TERMINAL: STANDBY';
         }
-      }
-    }
 
-    // Select active environment
-    function selectHost(host) {
-      selectedHost = host;
-      renderHostList();
+        // Executed Action
+        function runAction(action, containerName = '') {
+          if (!selectedHost) return;
 
-      document.getElementById('emptyState').style.display = 'none';
-      document.getElementById('contentPanel').style.display = 'flex';
+          if (wsConn) {
+            wsConn.close();
+          }
 
-      setTimeout(() => {
-        try { if (fitAddon) fitAddon.fit(); } catch (e) { }
-      }, 50);
+          document.getElementById('terminalContainer').classList.add('active');
+          document.getElementById('terminalStatus').textContent = `RUNNING: ${action.toUpperCase()}${containerName ? ' (' + containerName + ')' : ''}`;
 
-      // Load active project containers status list
-      loadContainers(host.id);
+          toggleButtons(true);
 
-      document.getElementById('selectedHostName').textContent = host.name;
+          term.clear();
+          term.write(`\r\nConnecting to backend websocket stream for '${action}'${containerName ? ' on container ' + containerName : ''}...\r\n`);
 
-      let metaText = '';
-      if (host.type === 'remote') {
-        metaText = `Remote Host SSH: ${host.user}@${host.ip}:${host.port} | Path: ${host.projectDir} | Branch: ${host.branch || 'main'} | Access: ${host.allowedRole.toUpperCase()}`;
-      } else {
-        metaText = `Local Deployment | Path: ${host.projectDir} | Branch: ${host.branch || 'main'} | Access: ${host.allowedRole.toUpperCase()}`;
-      }
-      document.getElementById('selectedHostMeta').textContent = metaText;
+          const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
-      // Toggle .env viewer button visibility based on client-side check
-      const envPerm = getClientEnvPermission(host);
-      const envBtn = document.getElementById('manageEnvBtn');
-      const composeBtn = document.getElementById('manageComposeBtn');
-      if (envPerm !== 'none') {
-        envBtn.style.display = 'inline-flex';
-        composeBtn.style.display = 'inline-flex';
-      } else {
-        envBtn.style.display = 'none';
-        composeBtn.style.display = 'none';
-      }
+          // Build query and attach simulation overrides if dev mode active (since WebSocket upgrade doesn't allow custom headers)
+          let customSimQuery = '';
+          if (devModeActive) {
+            customSimQuery = `&simUser=${encodeURIComponent(usernameVal)}&simRole=${encodeURIComponent(userRole)}`;
+          }
 
-      term.clear();
-      term.write(`\r\n\x1b[32mSwitched to environment: ${host.name}\x1b[0m\r\n`);
-      term.write(`\x1b[33mSelect git pull, redeploy, or view logs stream to execute.\x1b[0m\r\n\r\n`);
+          const containerParam = containerName ? `&container=${encodeURIComponent(containerName)}` : '';
+          const wsUrl = `${protocol}//${window.location.host}/api/stream?action=${action}&hostId=${selectedHost.id}${containerParam}${customSimQuery}`;
 
-      if (wsConn) {
-        wsConn.close();
-      }
-    }
+          wsConn = new WebSocket(wsUrl);
 
-    function getClientEnvPermission(host) {
-      if (userRole === 'admin') return 'write';
-      const policy = host.envPermissions || { default: 'none', users: {}, groups: {} };
-      const username = usernameVal ? usernameVal.toLowerCase() : null;
+          wsConn.onmessage = (event) => {
+            term.write(event.data);
+          };
 
-      if (username && policy.users && policy.users[username]) {
-        return policy.users[username];
-      }
+          wsConn.onclose = (event) => {
+            document.getElementById('terminalContainer').classList.remove('active');
+            document.getElementById('terminalStatus').textContent = `FINISHED: ${action.toUpperCase()}`;
+            toggleButtons(false);
+            wsConn = null;
+            pingHostStatus(selectedHost.id);
+            loadContainers(selectedHost.id);
+          };
 
-      if (userGroups && policy.groups) {
-        let highest = 'none';
-        for (const group of userGroups) {
-          const rule = policy.groups[group];
-          if (rule) {
-            if (rule === 'write') highest = 'write';
-            else if (rule === 'read' && highest !== 'write') highest = 'read';
+          wsConn.onerror = (error) => {
+            term.write(`\r\n\x1b[31mWebsocket error: Connection refused by server.\x1b[0m\r\n`);
+            document.getElementById('terminalContainer').classList.remove('active');
+            document.getElementById('terminalStatus').textContent = 'ERROR';
+            toggleButtons(false);
+          };
+        }
+
+        function toggleButtons(disabled) {
+          document.getElementById('gitPullBtn').disabled = disabled;
+          document.getElementById('redeployBtn').disabled = disabled;
+          document.getElementById('startBtn').disabled = disabled;
+          document.getElementById('stopBtn').disabled = disabled;
+          document.getElementById('logsBtn').disabled = disabled;
+        }
+
+        // Modal Control Box
+        function openHostModal() {
+          if (userRole !== 'admin') {
+            alert('Permission denied. Admin role required.');
+            return;
+          }
+
+          document.getElementById('hostFormId').value = '';
+          document.getElementById('hostName').value = '';
+          document.getElementById('hostType').value = 'local';
+          document.getElementById('hostAllowedRole').value = 'admin'; // default is admin
+
+          // Initialize new env matrix inputs
+          document.getElementById('envDefaultPerm').value = 'none';
+          document.getElementById('envUserOverrides').value = '';
+          document.getElementById('envGroupOverrides').value = '';
+
+          document.getElementById('hostIp').value = '';
+          document.getElementById('hostPort').value = '22';
+          document.getElementById('hostUser').value = '';
+          document.getElementById('hostKeyPath').value = '';
+          document.getElementById('hostProjectDir').value = '';
+          document.getElementById('hostGitUrl').value = '';
+          document.getElementById('hostBranch').value = 'main';
+
+          document.getElementById('deleteHostBtn').style.display = 'none';
+          document.getElementById('modalTitle').textContent = 'Add Environment Host';
+
+          syncCustomDropdown('hostTypeDropdown');
+          syncCustomDropdown('hostAllowedRoleDropdown');
+          syncCustomDropdown('envDefaultPermDropdown');
+
+          toggleHostTypeFields();
+          document.getElementById('hostModal').classList.add('open');
+        }
+
+        function editHost(id) {
+          if (userRole !== 'admin') {
+            alert('Permission denied. Admin role required.');
+            return;
+          }
+
+          const host = hosts.find(h => h.id === id);
+          if (!host) return;
+
+          document.getElementById('hostFormId').value = host.id;
+          document.getElementById('hostName').value = host.name;
+          document.getElementById('hostType').value = host.type;
+          document.getElementById('hostAllowedRole').value = host.allowedRole || 'admin';
+          document.getElementById('hostGitUrl').value = host.gitUrl || '';
+          document.getElementById('hostBranch').value = host.branch || 'main';
+
+          // Populate env matrix overrides
+          const defaultEnv = (host.envPermissions && host.envPermissions.default) ? host.envPermissions.default : 'none';
+          document.getElementById('envDefaultPerm').value = defaultEnv;
+
+          syncCustomDropdown('hostTypeDropdown');
+          syncCustomDropdown('hostAllowedRoleDropdown');
+          syncCustomDropdown('envDefaultPermDropdown');
+
+          let userLines = [];
+          if (host.envPermissions && host.envPermissions.users) {
+            for (const [u, p] of Object.entries(host.envPermissions.users)) {
+              userLines.push(`${u}:${p}`);
+            }
+          }
+          document.getElementById('envUserOverrides').value = userLines.join('\n');
+
+          let groupLines = [];
+          if (host.envPermissions && host.envPermissions.groups) {
+            for (const [g, p] of Object.entries(host.envPermissions.groups)) {
+              groupLines.push(`${g}:${p}`);
+            }
+          }
+          document.getElementById('envGroupOverrides').value = groupLines.join('\n');
+
+          document.getElementById('hostIp').value = host.ip;
+          document.getElementById('hostPort').value = host.port;
+          document.getElementById('hostUser').value = host.user;
+          document.getElementById('hostKeyPath').value = host.sshKeyPath;
+          document.getElementById('hostProjectDir').value = host.projectDir;
+
+          document.getElementById('deleteHostBtn').style.display = 'inline-flex';
+          document.getElementById('modalTitle').textContent = 'Manage Environment Host';
+
+          toggleHostTypeFields();
+          document.getElementById('hostModal').classList.add('open');
+        }
+
+        function closeHostModal() {
+          document.getElementById('hostModal').classList.remove('open');
+        }
+
+        // Create / Update Submit Request
+        async function submitHost() {
+          const id = document.getElementById('hostFormId').value;
+          const name = document.getElementById('hostName').value;
+          const type = document.getElementById('hostType').value;
+          const allowedRole = document.getElementById('hostAllowedRole').value;
+          const ip = document.getElementById('hostIp').value;
+          const port = document.getElementById('hostPort').value;
+          const user = document.getElementById('hostUser').value;
+          const sshKeyPath = document.getElementById('hostKeyPath').value;
+          const projectDir = document.getElementById('hostProjectDir').value;
+          const gitUrl = document.getElementById('hostGitUrl').value;
+          const branch = document.getElementById('hostBranch').value;
+
+          if (!name || projectDir === undefined) {
+            alert('Name and project directory paths are required configurations.');
+            return;
+          }
+          if (type === 'remote' && (!ip || !user)) {
+            alert('IP and User configurations are mandatory requirements for remote connections.');
+            return;
+          }
+
+          // Reconstruct envPermission overrides
+          const envPermissions = {
+            default: document.getElementById('envDefaultPerm').value,
+            users: {},
+            groups: {}
+          };
+
+          const userLines = document.getElementById('envUserOverrides').value.split('\n');
+          for (const line of userLines) {
+            if (!line.trim()) continue;
+            const parts = line.split(':');
+            if (parts.length === 2) {
+              envPermissions.users[parts[0].trim().toLowerCase()] = parts[1].trim().toLowerCase();
+            }
+          }
+
+          const groupLines = document.getElementById('envGroupOverrides').value.split('\n');
+          for (const line of groupLines) {
+            if (!line.trim()) continue;
+            const parts = line.split(':');
+            if (parts.length === 2) {
+              envPermissions.groups[parts[0].trim().toLowerCase()] = parts[1].trim().toLowerCase();
+            }
+          }
+
+          const bodyData = { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions, gitUrl, branch };
+
+          try {
+            let response;
+            if (id) {
+              response = await fetch(`/api/hosts/${id}`, {
+                method: 'PUT',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(bodyData)
+              });
+            } else {
+              response = await fetch('/api/hosts', {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(bodyData)
+              });
+            }
+
+            if (response.ok) {
+              closeHostModal();
+              await loadHosts();
+
+              const savedData = await response.json();
+              if (id && selectedHost && selectedHost.id === id) {
+                selectHost(savedData);
+              }
+            } else {
+              const errData = await response.json();
+              alert('Submission error: ' + errData.error);
+            }
+          } catch (err) {
+            console.error('Error submitting host info:', err);
+            alert('Failed to save. Check server output.');
           }
         }
-        if (highest !== 'none') return highest;
-      }
 
-      return policy.default || 'none';
-    }
+        // Delete Host Environment
+        async function deleteHost() {
+          const id = document.getElementById('hostFormId').value;
+          if (!id) return;
 
-    async function checkActiveHostStatus() {
-      if (!selectedHost) return;
-      const termStatus = document.getElementById('terminalStatus');
-      termStatus.textContent = 'PROBING ENVIRONMENT...';
-      term.write(`\r\nPinging Host connection: ${selectedHost.name}...\r\n`);
-
-      await pingHostStatus(selectedHost.id);
-      await loadContainers(selectedHost.id);
-
-      term.write(`Ping complete. Status refreshed in Sidebar.\r\n\r\n`);
-      termStatus.textContent = 'TERMINAL: STANDBY';
-    }
-
-    // Executed Action
-    function runAction(action, containerName = '') {
-      if (!selectedHost) return;
-
-      if (wsConn) {
-        wsConn.close();
-      }
-
-      document.getElementById('terminalContainer').classList.add('active');
-      document.getElementById('terminalStatus').textContent = `RUNNING: ${action.toUpperCase()}${containerName ? ' (' + containerName + ')' : ''}`;
-
-      toggleButtons(true);
-
-      term.clear();
-      term.write(`\r\nConnecting to backend websocket stream for '${action}'${containerName ? ' on container ' + containerName : ''}...\r\n`);
-
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-
-      // Build query and attach simulation overrides if dev mode active (since WebSocket upgrade doesn't allow custom headers)
-      let customSimQuery = '';
-      if (devModeActive) {
-        customSimQuery = `&simUser=${encodeURIComponent(usernameVal)}&simRole=${encodeURIComponent(userRole)}`;
-      }
-
-      const containerParam = containerName ? `&container=${encodeURIComponent(containerName)}` : '';
-      const wsUrl = `${protocol}//${window.location.host}/api/stream?action=${action}&hostId=${selectedHost.id}${containerParam}${customSimQuery}`;
-
-      wsConn = new WebSocket(wsUrl);
-
-      wsConn.onmessage = (event) => {
-        term.write(event.data);
-      };
-
-      wsConn.onclose = (event) => {
-        document.getElementById('terminalContainer').classList.remove('active');
-        document.getElementById('terminalStatus').textContent = `FINISHED: ${action.toUpperCase()}`;
-        toggleButtons(false);
-        wsConn = null;
-        pingHostStatus(selectedHost.id);
-        loadContainers(selectedHost.id);
-      };
-
-      wsConn.onerror = (error) => {
-        term.write(`\r\n\x1b[31mWebsocket error: Connection refused by server.\x1b[0m\r\n`);
-        document.getElementById('terminalContainer').classList.remove('active');
-        document.getElementById('terminalStatus').textContent = 'ERROR';
-        toggleButtons(false);
-      };
-    }
-
-    function toggleButtons(disabled) {
-      document.getElementById('gitPullBtn').disabled = disabled;
-      document.getElementById('redeployBtn').disabled = disabled;
-      document.getElementById('startBtn').disabled = disabled;
-      document.getElementById('stopBtn').disabled = disabled;
-      document.getElementById('logsBtn').disabled = disabled;
-    }
-
-    // Modal Control Box
-    function openHostModal() {
-      if (userRole !== 'admin') {
-        alert('Permission denied. Admin role required.');
-        return;
-      }
-
-      document.getElementById('hostFormId').value = '';
-      document.getElementById('hostName').value = '';
-      document.getElementById('hostType').value = 'local';
-      document.getElementById('hostAllowedRole').value = 'admin'; // default is admin
-
-      // Initialize new env matrix inputs
-      document.getElementById('envDefaultPerm').value = 'none';
-      document.getElementById('envUserOverrides').value = '';
-      document.getElementById('envGroupOverrides').value = '';
-
-      document.getElementById('hostIp').value = '';
-      document.getElementById('hostPort').value = '22';
-      document.getElementById('hostUser').value = '';
-      document.getElementById('hostKeyPath').value = '';
-      document.getElementById('hostProjectDir').value = '';
-      document.getElementById('hostGitUrl').value = '';
-      document.getElementById('hostBranch').value = 'main';
-
-      document.getElementById('deleteHostBtn').style.display = 'none';
-      document.getElementById('modalTitle').textContent = 'Add Environment Host';
-
-      syncCustomDropdown('hostTypeDropdown');
-      syncCustomDropdown('hostAllowedRoleDropdown');
-      syncCustomDropdown('envDefaultPermDropdown');
-
-      toggleHostTypeFields();
-      document.getElementById('hostModal').classList.add('open');
-    }
-
-    function editHost(id) {
-      if (userRole !== 'admin') {
-        alert('Permission denied. Admin role required.');
-        return;
-      }
-
-      const host = hosts.find(h => h.id === id);
-      if (!host) return;
-
-      document.getElementById('hostFormId').value = host.id;
-      document.getElementById('hostName').value = host.name;
-      document.getElementById('hostType').value = host.type;
-      document.getElementById('hostAllowedRole').value = host.allowedRole || 'admin';
-      document.getElementById('hostGitUrl').value = host.gitUrl || '';
-      document.getElementById('hostBranch').value = host.branch || 'main';
-
-      // Populate env matrix overrides
-      const defaultEnv = (host.envPermissions && host.envPermissions.default) ? host.envPermissions.default : 'none';
-      document.getElementById('envDefaultPerm').value = defaultEnv;
-
-      syncCustomDropdown('hostTypeDropdown');
-      syncCustomDropdown('hostAllowedRoleDropdown');
-      syncCustomDropdown('envDefaultPermDropdown');
-
-      let userLines = [];
-      if (host.envPermissions && host.envPermissions.users) {
-        for (const [u, p] of Object.entries(host.envPermissions.users)) {
-          userLines.push(`${u}:${p}`);
-        }
-      }
-      document.getElementById('envUserOverrides').value = userLines.join('\n');
-
-      let groupLines = [];
-      if (host.envPermissions && host.envPermissions.groups) {
-        for (const [g, p] of Object.entries(host.envPermissions.groups)) {
-          groupLines.push(`${g}:${p}`);
-        }
-      }
-      document.getElementById('envGroupOverrides').value = groupLines.join('\n');
-
-      document.getElementById('hostIp').value = host.ip;
-      document.getElementById('hostPort').value = host.port;
-      document.getElementById('hostUser').value = host.user;
-      document.getElementById('hostKeyPath').value = host.sshKeyPath;
-      document.getElementById('hostProjectDir').value = host.projectDir;
-
-      document.getElementById('deleteHostBtn').style.display = 'inline-flex';
-      document.getElementById('modalTitle').textContent = 'Manage Environment Host';
-
-      toggleHostTypeFields();
-      document.getElementById('hostModal').classList.add('open');
-    }
-
-    function closeHostModal() {
-      document.getElementById('hostModal').classList.remove('open');
-    }
-
-    // Create / Update Submit Request
-    async function submitHost() {
-      const id = document.getElementById('hostFormId').value;
-      const name = document.getElementById('hostName').value;
-      const type = document.getElementById('hostType').value;
-      const allowedRole = document.getElementById('hostAllowedRole').value;
-      const ip = document.getElementById('hostIp').value;
-      const port = document.getElementById('hostPort').value;
-      const user = document.getElementById('hostUser').value;
-      const sshKeyPath = document.getElementById('hostKeyPath').value;
-      const projectDir = document.getElementById('hostProjectDir').value;
-      const gitUrl = document.getElementById('hostGitUrl').value;
-      const branch = document.getElementById('hostBranch').value;
-
-      if (!name || projectDir === undefined) {
-        alert('Name and project directory paths are required configurations.');
-        return;
-      }
-      if (type === 'remote' && (!ip || !user)) {
-        alert('IP and User configurations are mandatory requirements for remote connections.');
-        return;
-      }
-
-      // Reconstruct envPermission overrides
-      const envPermissions = {
-        default: document.getElementById('envDefaultPerm').value,
-        users: {},
-        groups: {}
-      };
-
-      const userLines = document.getElementById('envUserOverrides').value.split('\n');
-      for (const line of userLines) {
-        if (!line.trim()) continue;
-        const parts = line.split(':');
-        if (parts.length === 2) {
-          envPermissions.users[parts[0].trim().toLowerCase()] = parts[1].trim().toLowerCase();
-        }
-      }
-
-      const groupLines = document.getElementById('envGroupOverrides').value.split('\n');
-      for (const line of groupLines) {
-        if (!line.trim()) continue;
-        const parts = line.split(':');
-        if (parts.length === 2) {
-          envPermissions.groups[parts[0].trim().toLowerCase()] = parts[1].trim().toLowerCase();
-        }
-      }
-
-      const bodyData = { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions, gitUrl, branch };
-
-      try {
-        let response;
-        if (id) {
-          response = await fetch(`/api/hosts/${id}`, {
-            method: 'PUT',
-            headers: getAuthHeaders(),
-            body: JSON.stringify(bodyData)
-          });
-        } else {
-          response = await fetch('/api/hosts', {
-            method: 'POST',
-            headers: getAuthHeaders(),
-            body: JSON.stringify(bodyData)
-          });
-        }
-
-        if (response.ok) {
-          closeHostModal();
-          await loadHosts();
-
-          const savedData = await response.json();
-          if (id && selectedHost && selectedHost.id === id) {
-            selectHost(savedData);
+          if (!confirm('Are you absolutely certain you wish to delete this docker environment host?')) {
+            return;
           }
-        } else {
-          const errData = await response.json();
-          alert('Submission error: ' + errData.error);
-        }
-      } catch (err) {
-        console.error('Error submitting host info:', err);
-        alert('Failed to save. Check server output.');
-      }
-    }
 
-    // Delete Host Environment
-    async function deleteHost() {
-      const id = document.getElementById('hostFormId').value;
-      if (!id) return;
+          try {
+            const response = await fetch(`/api/hosts/${id}`, {
+              method: 'DELETE',
+              headers: getAuthHeaders()
+            });
 
-      if (!confirm('Are you absolutely certain you wish to delete this docker environment host?')) {
-        return;
-      }
-
-      try {
-        const response = await fetch(`/api/hosts/${id}`, {
-          method: 'DELETE',
-          headers: getAuthHeaders()
-        });
-
-        if (response.ok) {
-          closeHostModal();
-          if (selectedHost && selectedHost.id === id) {
-            selectedHost = null;
-            document.getElementById('contentPanel').style.display = 'none';
-            document.getElementById('emptyState').style.display = 'flex';
+            if (response.ok) {
+              closeHostModal();
+              if (selectedHost && selectedHost.id === id) {
+                selectedHost = null;
+                document.getElementById('contentPanel').style.display = 'none';
+                document.getElementById('emptyState').style.display = 'flex';
+              }
+              await loadHosts();
+            } else {
+              const errData = await response.json();
+              alert('Failed to delete: ' + errData.error);
+            }
+          } catch (err) {
+            console.error('Error deleting environment:', err);
+            alert('Server query failure. Check console.');
           }
-          await loadHosts();
-        } else {
-          const errData = await response.json();
-          alert('Failed to delete: ' + errData.error);
-        }
-      } catch (err) {
-        console.error('Error deleting environment:', err);
-        alert('Server query failure. Check console.');
-      }
-    }
-
-    // Modal show/submit methods for .env and compose configurations
-    let activeEditorMode = 'env'; // 'env' or 'compose'
-
-    async function openEditorModal(mode) {
-      if (!selectedHost) return;
-      activeEditorMode = mode;
-
-      const overlay = document.getElementById('envModalOverlay');
-      const textarea = document.getElementById('envContents');
-      const badge = document.getElementById('envPermissionBadge');
-      const saveBtn = document.getElementById('saveEnvBtn');
-      const status = document.getElementById('envSaveStatus');
-      const modalTitle = document.getElementById('envModalTitle');
-      const fileLabel = document.getElementById('envModalFileLabel');
-
-      textarea.value = '';
-      badge.className = 'host-badge';
-      badge.textContent = 'QUERYING...';
-
-      if (mode === 'env') {
-        modalTitle.textContent = 'Manage Environment Variables (.env)';
-        fileLabel.textContent = 'File Buffer (.env)';
-        status.textContent = 'Loading env contents...';
-      } else {
-        modalTitle.textContent = 'Manage Docker Compose Configuration';
-        fileLabel.textContent = 'File Buffer';
-        status.textContent = 'Loading compose contents...';
-      }
-
-      saveBtn.disabled = true;
-      textarea.disabled = true;
-
-      overlay.classList.add('open');
-
-      try {
-        const endpoint = mode === 'env' ? 'env' : 'compose';
-        const response = await fetch(`/api/hosts/${selectedHost.id}/${endpoint}`, { headers: getAuthHeaders() });
-        if (!response.ok) {
-          const err = await response.json();
-          alert('Failed to access: ' + err.error);
-          overlay.classList.remove('open');
-          return;
         }
 
-        const data = await response.json();
-        textarea.value = data.content;
-        textarea.disabled = false;
+        // Modal show/submit methods for .env and compose configurations
+        let activeEditorMode = 'env'; // 'env' or 'compose'
 
-        if (mode === 'compose' && data.filename) {
-          modalTitle.textContent = `Manage Docker Compose Config (${data.filename})`;
-          fileLabel.textContent = `File Buffer (${data.filename})`;
-        }
+        async function openEditorModal(mode) {
+          if (!selectedHost) return;
+          activeEditorMode = mode;
 
-        if (data.permission === 'write') {
-          badge.textContent = 'Read/Write';
-          badge.className = 'host-badge perm-user'; // green
-          saveBtn.disabled = false;
-          textarea.readOnly = false;
-          status.textContent = 'File editable. Modify contents and click save.';
-        } else {
-          badge.textContent = 'Read-Only';
-          badge.className = 'host-badge perm-admin'; // red
+          const overlay = document.getElementById('envModalOverlay');
+          const textarea = document.getElementById('envContents');
+          const badge = document.getElementById('envPermissionBadge');
+          const saveBtn = document.getElementById('saveEnvBtn');
+          const status = document.getElementById('envSaveStatus');
+          const modalTitle = document.getElementById('envModalTitle');
+          const fileLabel = document.getElementById('envModalFileLabel');
+
+          textarea.value = '';
+          badge.className = 'host-badge';
+          badge.textContent = 'QUERYING...';
+
+          if (mode === 'env') {
+            modalTitle.textContent = 'Manage Environment Variables (.env)';
+            fileLabel.textContent = 'File Buffer (.env)';
+            status.textContent = 'Loading env contents...';
+          } else {
+            modalTitle.textContent = 'Manage Docker Compose Configuration';
+            fileLabel.textContent = 'File Buffer';
+            status.textContent = 'Loading compose contents...';
+          }
+
           saveBtn.disabled = true;
-          textarea.readOnly = true;
-          status.textContent = 'View only permission. Saving changes is disabled.';
-        }
-      } catch (err) {
-        console.error('Failed fetching file payload:', err);
-        alert('Networking error loading file. Verify server log.');
-        overlay.classList.remove('open');
-      }
-    }
+          textarea.disabled = true;
 
-    function viewEnvFile() {
-      openEditorModal('env');
-    }
+          overlay.classList.add('open');
 
-    function viewComposeFile() {
-      openEditorModal('compose');
-    }
+          try {
+            const endpoint = mode === 'env' ? 'env' : 'compose';
+            const response = await fetch(`/api/hosts/${selectedHost.id}/${endpoint}`, { headers: getAuthHeaders() });
+            if (!response.ok) {
+              const err = await response.json();
+              alert('Failed to access: ' + err.error);
+              overlay.classList.remove('open');
+              return;
+            }
 
-    function closeEnvModal() {
-      document.getElementById('envModalOverlay').classList.remove('open');
-    }
+            const data = await response.json();
+            textarea.value = data.content;
+            textarea.disabled = false;
 
-    async function submitEnvFile() {
-      if (!selectedHost) return;
+            if (mode === 'compose' && data.filename) {
+              modalTitle.textContent = `Manage Docker Compose Config (${data.filename})`;
+              fileLabel.textContent = `File Buffer (${data.filename})`;
+            }
 
-      const textarea = document.getElementById('envContents');
-      const status = document.getElementById('envSaveStatus');
-      const saveBtn = document.getElementById('saveEnvBtn');
-
-      status.textContent = 'Writing updates...';
-      saveBtn.disabled = true;
-      textarea.disabled = true;
-
-      try {
-        const endpoint = activeEditorMode === 'env' ? 'env' : 'compose';
-        const response = await fetch(`/api/hosts/${selectedHost.id}/${endpoint}`, {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          body: JSON.stringify({ content: textarea.value })
-        });
-
-        if (response.ok) {
-          status.textContent = 'Changes saved successfully.';
-          alert('Success: file updated.');
-          closeEnvModal();
-        } else {
-          const err = await response.json();
-          status.textContent = 'Error: ' + err.error;
-          alert('Update failed: ' + err.error);
-        }
-      } catch (err) {
-        console.error('Failed to submit write request:', err);
-        status.textContent = 'Network write failed.';
-        alert('Network interface failure. Verify backend connection.');
-      } finally {
-        textarea.disabled = false;
-        saveBtn.disabled = false;
-      }
-    }
-
-    // Dynamic containers loader and port redirects builder
-    async function loadContainers(hostId) {
-      const containerSec = document.getElementById('containersSection');
-      const containerList = document.getElementById('containersList');
-
-      containerSec.style.display = 'block';
-      containerList.innerHTML = '<div style="grid-column: 1/-1; color: var(--text-muted); font-size:13px;">Inquiring containers status...</div>';
-
-      try {
-        const response = await fetch(`/api/hosts/${hostId}/containers`, { headers: getAuthHeaders() });
-        if (!response.ok) {
-          containerList.innerHTML = '<div style="grid-column: 1/-1; color: var(--error); font-size:13px;">Inquiring failed to acquire stack status.</div>';
-          return;
+            if (data.permission === 'write') {
+              badge.textContent = 'Read/Write';
+              badge.className = 'host-badge perm-user'; // green
+              saveBtn.disabled = false;
+              textarea.readOnly = false;
+              status.textContent = 'File editable. Modify contents and click save.';
+            } else {
+              badge.textContent = 'Read-Only';
+              badge.className = 'host-badge perm-admin'; // red
+              saveBtn.disabled = true;
+              textarea.readOnly = true;
+              status.textContent = 'View only permission. Saving changes is disabled.';
+            }
+          } catch (err) {
+            console.error('Failed fetching file payload:', err);
+            alert('Networking error loading file. Verify server log.');
+            overlay.classList.remove('open');
+          }
         }
 
-        const list = await response.json();
-        containerList.innerHTML = '';
-
-        if (!list || list.length === 0) {
-          containerList.innerHTML = '<div style="grid-column: 1/-1; color: var(--text-muted); font-size:13px; padding: 12px 0;">No active compose container processes running in this environment. Run redeploy to build/start processes.</div>';
-          return;
+        function viewEnvFile() {
+          openEditorModal('env');
         }
 
-        list.forEach(c => {
-          const card = document.createElement('div');
-          card.className = 'container-item-card';
+        function viewComposeFile() {
+          openEditorModal('compose');
+        }
 
-          const name = c.Name || c.name || 'Unnamed container';
-          const service = c.Service || c.service || 'unknown';
-          const state = (c.State || c.state || c.Status || '').toLowerCase();
-          const ports = c.Ports || c.ports || '';
+        function closeEnvModal() {
+          document.getElementById('envModalOverlay').classList.remove('open');
+        }
 
-          const isRunning = state.includes('up') || state.includes('running');
-          const badgeClass = isRunning ? 'running' : 'stopped';
-          const stateLabel = isRunning ? 'Running' : 'Stopped';
+        async function submitEnvFile() {
+          if (!selectedHost) return;
 
-          // Extract link paths
-          const links = getContainerLinks(ports, selectedHost);
-          let linkButtonsHtml = '';
-          if (links.length > 0) {
-            links.forEach(link => {
-              linkButtonsHtml += `
+          const textarea = document.getElementById('envContents');
+          const status = document.getElementById('envSaveStatus');
+          const saveBtn = document.getElementById('saveEnvBtn');
+
+          status.textContent = 'Writing updates...';
+          saveBtn.disabled = true;
+          textarea.disabled = true;
+
+          try {
+            const endpoint = activeEditorMode === 'env' ? 'env' : 'compose';
+            const response = await fetch(`/api/hosts/${selectedHost.id}/${endpoint}`, {
+              method: 'POST',
+              headers: getAuthHeaders(),
+              body: JSON.stringify({ content: textarea.value })
+            });
+
+            if (response.ok) {
+              status.textContent = 'Changes saved successfully.';
+              alert('Success: file updated.');
+              closeEnvModal();
+            } else {
+              const err = await response.json();
+              status.textContent = 'Error: ' + err.error;
+              alert('Update failed: ' + err.error);
+            }
+          } catch (err) {
+            console.error('Failed to submit write request:', err);
+            status.textContent = 'Network write failed.';
+            alert('Network interface failure. Verify backend connection.');
+          } finally {
+            textarea.disabled = false;
+            saveBtn.disabled = false;
+          }
+        }
+
+        // Dynamic containers loader and port redirects builder
+        async function loadContainers(hostId) {
+          const containerSec = document.getElementById('containersSection');
+          const containerList = document.getElementById('containersList');
+
+          containerSec.style.display = 'block';
+          containerList.innerHTML = '<div style="grid-column: 1/-1; color: var(--text-muted); font-size:13px;">Inquiring containers status...</div>';
+
+          try {
+            const response = await fetch(`/api/hosts/${hostId}/containers`, { headers: getAuthHeaders() });
+            if (!response.ok) {
+              containerList.innerHTML = '<div style="grid-column: 1/-1; color: var(--error); font-size:13px;">Inquiring failed to acquire stack status.</div>';
+              return;
+            }
+
+            const list = await response.json();
+            containerList.innerHTML = '';
+
+            if (!list || list.length === 0) {
+              containerList.innerHTML = '<div style="grid-column: 1/-1; color: var(--text-muted); font-size:13px; padding: 12px 0;">No active compose container processes running in this environment. Run redeploy to build/start processes.</div>';
+              return;
+            }
+
+            list.forEach(c => {
+              const card = document.createElement('div');
+              card.className = 'container-item-card';
+
+              const name = c.Name || c.name || 'Unnamed container';
+              const service = c.Service || c.service || 'unknown';
+              const state = (c.State || c.state || c.Status || '').toLowerCase();
+              const ports = c.Ports || c.ports || '';
+
+              const isRunning = state.includes('up') || state.includes('running');
+              const badgeClass = isRunning ? 'running' : 'stopped';
+              const stateLabel = isRunning ? 'Running' : 'Stopped';
+
+              // Extract link paths
+              const links = getContainerLinks(ports, selectedHost);
+              let linkButtonsHtml = '';
+              if (links.length > 0) {
+                links.forEach(link => {
+                  linkButtonsHtml += `
                 <a href="${link.url}" target="_blank" class="btn btn-secondary font-btn" style="padding: 4px 8px; font-size:11px; margin-top:2px; display:inline-flex; align-items:center; gap:4px; text-decoration:none; color:var(--accent-color); width:fit-content;">
                   🔗 Open App (Port ${link.port})
                 </a>
               `;
-            });
-          }
+                });
+              }
 
-          let logsButtonHtml = '';
-          if (service && service !== 'unknown') {
-            logsButtonHtml = `
+              let logsButtonHtml = '';
+              if (service && service !== 'unknown') {
+                logsButtonHtml = `
               <button class="btn btn-secondary font-btn" style="padding: 4px 8px; font-size:11px; margin-top:2px; display:inline-flex; align-items:center; gap:4px;" onclick="runAction('container-logs', '${escapeHTML(service)}')">
                 📄 View Logs
               </button>
             `;
-          }
+              }
 
-          card.innerHTML = `
+              card.innerHTML = `
             <div class="container-card-header">
               <span class="container-card-title" title="${escapeHTML(name)}">${escapeHTML(name)}</span>
               <span class="container-status-badge ${badgeClass}">${stateLabel}</span>
@@ -2106,32 +2211,32 @@
               ${logsButtonHtml}
             </div>
           `;
-          containerList.appendChild(card);
-        });
+              containerList.appendChild(card);
+            });
 
-      } catch (err) {
-        console.error('Error fetching container details:', err);
-        containerList.innerHTML = '<div style="grid-column: 1/-1; color: var(--error); font-size:13px;">Error communicating status. Check terminal/network configurations.</div>';
-      }
-    }
+          } catch (err) {
+            console.error('Error fetching container details:', err);
+            containerList.innerHTML = '<div style="grid-column: 1/-1; color: var(--error); font-size:13px;">Error communicating status. Check terminal/network configurations.</div>';
+          }
+        }
 
-    function getContainerLinks(portsStr, host) {
-      if (!portsStr) return [];
-      const links = [];
-      // Regex detects port patterns: 0.0.0.0:8765->80, :::80->80, 127.0.0.1:4000->80
-      const matches = [...portsStr.matchAll(/(?:0\.0\.0\.0|localhost|127\.0\.0\.1|:::):(\d+)->/g)];
-      const ip = host.type === 'remote' ? host.ip : 'localhost';
+        function getContainerLinks(portsStr, host) {
+          if (!portsStr) return [];
+          const links = [];
+          // Regex detects port patterns: 0.0.0.0:8765->80, :::80->80, 127.0.0.1:4000->80
+          const matches = [...portsStr.matchAll(/(?:0\.0\.0\.0|localhost|127\.0\.0\.1|:::):(\d+)->/g)];
+          const ip = host.type === 'remote' ? host.ip : 'localhost';
 
-      matches.forEach(m => {
-        const port = m[1];
-        links.push({
-          port: port,
-          url: `http://${ip}:${port}`
-        });
-      });
-      return links;
-    }
-  </script>
+          matches.forEach(m => {
+            const port = m[1];
+            links.push({
+              port: port,
+              url: `http://${ip}:${port}`
+            });
+          });
+          return links;
+        }
+      </script>
 </body>
 
 </html>

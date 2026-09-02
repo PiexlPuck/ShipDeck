@@ -320,7 +320,7 @@ app.delete('/api/hosts/:id', authMiddleware, requireAdmin, (req, res) => {
   res.json({ message: 'Host successfully deleted.' });
 });
 
-// Ping Host endpoint to verify connection
+// Ping Host endpoint to verify connection and Docker container status
 app.get('/api/hosts/:id/ping', authMiddleware, (req, res) => {
   const { id } = req.params;
   const hosts = getHosts();
@@ -329,50 +329,111 @@ app.get('/api/hosts/:id/ping', authMiddleware, (req, res) => {
     return res.status(404).json({ error: 'Host not found' });
   }
 
-  // Security Check: Users can only ping hosts they are allowed to access
   const hostRole = host.allowedRole || 'admin';
   if (hostRole === 'admin' && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Forbidden. Access restricted to administrator roles.' });
   }
 
+  const evaluateContainers = (stdout, cb) => {
+    let running = 0;
+    let total = 0;
+    const lines = (stdout || '').trim().split('\n').map(l => l.trim()).filter(Boolean);
+
+    if (lines.length > 0) {
+      lines.forEach(line => {
+        if (line.startsWith('{')) {
+          try {
+            const parsed = JSON.parse(line);
+            total++;
+            const state = (parsed.State || parsed.Status || '').toLowerCase();
+            if (state.includes('running') || state.includes('up')) running++;
+          } catch (e) { }
+        } else if (line.startsWith('[')) {
+          try {
+            const arr = JSON.parse(line);
+            total = arr.length;
+            running = arr.filter(c => ((c.State || c.Status || '').toLowerCase().includes('running') || (c.State || c.Status || '').toLowerCase().includes('up'))).length;
+          } catch (e) { }
+        } else if (!line.toLowerCase().startsWith('name') && !line.toLowerCase().startsWith('container')) {
+          total++;
+          if (line.toLowerCase().includes('up') || line.toLowerCase().includes('running')) {
+            running++;
+          }
+        }
+      });
+    }
+
+    let status = 'Online';
+    if (total === 0) {
+      status = 'Offline';
+    } else if (running === 0) {
+      status = 'Offline';
+    } else if (running < total) {
+      status = 'Degraded';
+    } else {
+      status = 'Online';
+    }
+    cb({ status, running, total });
+  };
+
   if (host.type === 'local') {
     if (fs.existsSync(host.projectDir)) {
       const gitDir = path.join(host.projectDir, '.git');
-      if (fs.existsSync(gitDir)) {
-        exec('git log -1 --format="%h - %s (%cr)"', { cwd: host.projectDir }, (gitErr, stdout) => {
-          const version = gitErr ? 'No Version Data' : stdout.trim();
-          res.json({ status: 'Online', message: 'Local directory exists.', version });
+      exec('docker compose ps --format json 2>/dev/null || docker compose ps 2>/dev/null', { cwd: host.projectDir }, (dockErr, dockStdout) => {
+        evaluateContainers(dockStdout, (cResult) => {
+          if (fs.existsSync(gitDir)) {
+            exec('git log -1 --format="%h - %s (%cr)"', { cwd: host.projectDir }, (gitErr, stdout) => {
+              const version = gitErr ? 'No Version Data' : stdout.trim();
+              res.json({
+                status: cResult.status,
+                message: `Local host (${cResult.running}/${cResult.total} containers running)`,
+                version,
+                containersCount: cResult.total,
+                containersRunning: cResult.running
+              });
+            });
+          } else {
+            res.json({
+              status: cResult.status,
+              message: `Local directory exists (${cResult.running}/${cResult.total} containers running)`,
+              version: 'No Git Repository',
+              containersCount: cResult.total,
+              containersRunning: cResult.running
+            });
+          }
         });
-      } else {
-        res.json({ status: 'Online', message: 'Local directory exists. Not inside a Git repository.', version: 'No Git Repository' });
-      }
+      });
     } else {
-      res.json({ status: 'Error', message: 'Local directory path does not exist on dashboard server.', version: 'Unknown' });
+      res.json({ status: 'Offline', message: 'Local directory path does not exist on dashboard server.', version: 'Unknown', containersCount: 0, containersRunning: 0 });
     }
   } else {
-    // Attempt SSH connection check (short timeout)
     const conn = new Client();
     let connError = null;
 
     conn.on('ready', () => {
-      const cmd = `if [ -d "${host.projectDir}/.git" ]; then cd "${host.projectDir}" && git log -1 --format="%h - %s (%cr)"; elif [ -d "${host.projectDir}" ]; then echo "nogit"; else echo "missing"; fi`;
+      const cmd = `if [ -d "${host.projectDir}" ]; then cd "${host.projectDir}" && docker compose ps 2>/dev/null; if [ -d ".git" ]; then git log -1 --format="%h - %s (%cr)"; else echo "nogit"; fi; else echo "missing"; fi`;
       conn.exec(cmd, (err, stream) => {
         if (err) {
           conn.end();
-          return res.json({ status: 'Error', message: `SSH Connection OK, command failed: ${err.message}` });
+          return res.json({ status: 'Offline', message: `SSH Connection OK, command failed: ${err.message}` });
         }
         let output = '';
-        stream.on('data', (data) => {
-          output += data;
-        }).on('close', (code) => {
+        stream.on('data', (data) => { output += data; }).on('close', () => {
           conn.end();
           const result = output.trim();
           if (result === 'missing') {
-            res.json({ status: 'Error', message: 'SSH Connection OK. Project directory DOES NOT exist on remote server.', version: 'Unknown' });
-          } else if (result === 'nogit') {
-            res.json({ status: 'Online', message: 'SSH Connection OK. Remote project directory exists (No Git Repository).', version: 'No Git Repository' });
+            res.json({ status: 'Offline', message: 'Remote project directory DOES NOT exist.', version: 'Unknown' });
           } else {
-            res.json({ status: 'Online', message: 'SSH Connection OK. Remote project directory exists.', version: result });
+            evaluateContainers(result, (cResult) => {
+              const gitLine = result.split('\n').pop() || '';
+              res.json({
+                status: cResult.status,
+                message: `SSH Connection OK (${cResult.running}/${cResult.total} containers running)`,
+                version: gitLine.includes('nogit') ? 'No Git Repository' : gitLine,
+                containersCount: cResult.total,
+                containersRunning: cResult.running
+              });
+            });
           }
         });
       });
@@ -388,6 +449,81 @@ app.get('/api/hosts/:id/ping', authMiddleware, (req, res) => {
         : host.sshKeyPath,
       readyTimeout: 5000
     });
+  }
+});
+
+// Git Status & Update Checker endpoint
+app.get('/api/hosts/:id/git-status', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  const hosts = getHosts();
+  const host = hosts.find(h => h.id === id);
+  if (!host) return res.status(404).json({ error: 'Host not found' });
+
+  const targetBranch = host.branch || 'main';
+
+  if (host.type === 'local') {
+    if (!fs.existsSync(host.projectDir)) {
+      return res.json({ hasUpdate: false, currentCommit: 'Missing Directory', changelog: [] });
+    }
+    const gitDir = path.join(host.projectDir, '.git');
+    if (!fs.existsSync(gitDir)) {
+      return res.json({ hasUpdate: false, currentCommit: 'No Git Repo', changelog: [] });
+    }
+
+    const gitUrlFormatted = formatGitUrl(host.gitUrl);
+    const fetchCmd = host.gitUrl ? `git remote set-url origin "${gitUrlFormatted}" 2>/dev/null; git fetch origin "${targetBranch}" 2>/dev/null` : `git fetch origin "${targetBranch}" 2>/dev/null`;
+
+    exec(fetchCmd, { cwd: host.projectDir }, () => {
+      exec('git rev-parse --short HEAD', { cwd: host.projectDir }, (err1, headOut) => {
+        const currentCommit = err1 ? 'Unknown' : headOut.trim();
+        exec(`git rev-parse --short origin/${targetBranch}`, { cwd: host.projectDir }, (err2, remoteOut) => {
+          const remoteCommit = err2 ? currentCommit : remoteOut.trim();
+          const hasUpdate = Boolean(currentCommit && remoteCommit && currentCommit !== remoteCommit && remoteCommit !== 'Unknown');
+
+          exec('git log -n 5 --pretty=format:"%h|%s|%cr|%an"', { cwd: host.projectDir }, (err3, logOut) => {
+            const changelog = (logOut || '').split('\n').filter(Boolean).map(line => {
+              const parts = line.split('|');
+              return { hash: parts[0] || '', subject: parts[1] || '', date: parts[2] || '', author: parts[3] || '' };
+            });
+            res.json({
+              hasUpdate,
+              currentCommit,
+              remoteCommit,
+              branch: targetBranch,
+              changelog
+            });
+          });
+        });
+      });
+    });
+  } else {
+    const conn = new Client();
+    conn.on('ready', () => {
+      const gitUrlFormatted = formatGitUrl(host.gitUrl);
+      const cmd = `cd "${host.projectDir}" 2>/dev/null && (git remote set-url origin "${gitUrlFormatted}" 2>/dev/null; git fetch origin "${targetBranch}" 2>/dev/null; git rev-parse --short HEAD; git rev-parse --short "origin/${targetBranch}"; git log -n 5 --pretty=format:"%h|%s|%cr|%an")`;
+      conn.exec(cmd, (err, stream) => {
+        if (err) { conn.end(); return res.json({ hasUpdate: false, currentCommit: 'Error', changelog: [] }); }
+        let output = '';
+        stream.on('data', data => output += data).on('close', () => {
+          conn.end();
+          const lines = output.split('\n').map(l => l.trim()).filter(Boolean);
+          if (lines.length < 2) return res.json({ hasUpdate: false, currentCommit: 'Unknown', changelog: [] });
+          const currentCommit = lines[0] || 'Unknown';
+          const remoteCommit = lines[1] || currentCommit;
+          const hasUpdate = Boolean(currentCommit !== remoteCommit && remoteCommit !== 'Unknown');
+          const changelog = lines.slice(2).map(l => {
+            const parts = l.split('|');
+            return { hash: parts[0] || '', subject: parts[1] || '', date: parts[2] || '', author: parts[3] || '' };
+          });
+          res.json({ hasUpdate, currentCommit, remoteCommit, branch: targetBranch, changelog });
+        });
+      });
+    }).on('error', () => res.json({ hasUpdate: false, currentCommit: 'SSH Error', changelog: [] }))
+      .connect({
+        host: host.ip, port: host.port, username: host.user,
+        privateKey: fs.existsSync(host.sshKeyPath) ? fs.readFileSync(host.sshKeyPath) : host.sshKeyPath,
+        readyTimeout: 5000
+      });
   }
 });
 
@@ -530,7 +666,7 @@ app.get('/api/system-status', authMiddleware, (req, res) => {
   });
 });
 
-// Get .env file inside project host
+// Get .env file inside project host (with persistent volume auto-restore)
 app.get('/api/hosts/:id/env', authMiddleware, (req, res) => {
   const { id } = req.params;
   const hosts = getHosts();
@@ -544,15 +680,28 @@ app.get('/api/hosts/:id/env', authMiddleware, (req, res) => {
     return res.status(403).json({ error: 'Forbidden. Access to env file is restricted.' });
   }
 
+  const backupDir = path.join(__dirname, 'data', 'envs');
+  const backupFile = path.join(backupDir, `${id}.env`);
+
   if (host.type === 'local') {
     const envPath = path.resolve(host.projectDir, '.env');
     if (!fs.existsSync(envPath)) {
+      if (fs.existsSync(backupFile)) {
+        try {
+          const backupContent = fs.readFileSync(backupFile, 'utf8');
+          fs.writeFileSync(envPath, backupContent, 'utf8');
+          return res.json({ permission, content: backupContent });
+        } catch (e) { }
+      }
       return res.json({ permission, content: '' });
     }
     fs.readFile(envPath, 'utf8', (err, data) => {
       if (err) {
         return res.status(500).json({ error: `Failed to read local env: ${err.message}` });
       }
+      // Save a sync copy to persistent backup
+      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+      fs.writeFile(backupFile, data, () => { });
       res.json({ permission, content: data });
     });
   } else {
@@ -566,11 +715,19 @@ app.get('/api/hosts/:id/env', authMiddleware, (req, res) => {
         let output = '';
         stream.on('data', (data) => {
           output += data;
-          if (output.length > 500000) { // Safety ceiling: 500KB
+          if (output.length > 500000) {
             stream.destroy();
           }
         }).on('close', (code) => {
           conn.end();
+          if (!output.trim() && fs.existsSync(backupFile)) {
+            try {
+              output = fs.readFileSync(backupFile, 'utf8');
+            } catch (e) { }
+          } else if (output.trim()) {
+            if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+            fs.writeFile(backupFile, output, () => { });
+          }
           res.json({ permission, content: output });
         });
       });
@@ -605,6 +762,11 @@ app.post('/api/hosts/:id/env', authMiddleware, (req, res) => {
   if (permission !== 'write') {
     return res.status(403).json({ error: 'Forbidden. Write access is restricted.' });
   }
+
+  const backupDir = path.join(__dirname, 'data', 'envs');
+  if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+  const backupFile = path.join(backupDir, `${id}.env`);
+  fs.writeFileSync(backupFile, content, 'utf8');
 
   if (host.type === 'local') {
     const envPath = path.resolve(host.projectDir, '.env');
