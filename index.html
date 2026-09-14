@@ -1459,28 +1459,11 @@
           <button class="btn btn-primary" id="saveEnvBtn" onclick="submitEnvFile()">Save Config</button>
         </div>
       </div>
-      <!-- Change Log Modal -->
-      <div class="modal-overlay" id="changelogModal" style="display: none;">
-        <div class="modal-content" style="max-width: 620px; width: 90%;">
-          <div class="modal-header">
-            <h3
-              style="margin:0; font-size: 18px; color: var(--text-main); display: flex; align-items: center; gap: 8px;">
-              📜 Recent Commit Change Log
-            </h3>
-            <button class="close-btn" onclick="closeChangelogModal()">×</button>
-          </div>
-          <div class="modal-body" id="changelogList"
-            style="margin-top: 16px; max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
-            <div style="color: var(--text-muted);">Loading commit history...</div>
-          </div>
-          <div class="modal-footer" style="margin-top: 20px; display: flex; justify-content: flex-end;">
-            <button class="btn btn-secondary" onclick="closeChangelogModal()">Close</button>
-          </div>
     </div>
   </div>
 
   <!-- Change Log Modal -->
-  <div class="modal-overlay" id="changelogModal">
+  <div class="modal-overlay" id="changelogModal" onclick="if(event.target===this)closeChangelogModal()">
     <div class="modal-container" style="max-width: 620px; width: 90vw;">
       <div class="modal-header">
         <h3 class="modal-title" style="display: flex; align-items: center; gap: 8px;">
@@ -1489,7 +1472,7 @@
         <button class="close-btn" onclick="closeChangelogModal()">&times;</button>
       </div>
       <div class="modal-body" id="changelogList"
-        style="max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
+        style="padding: 20px; max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
         <div style="color: var(--text-muted);">Loading commit history...</div>
       </div>
       <div class="modal-footer">
@@ -2164,37 +2147,59 @@
           }
         }
 
-        function openChangelogModal() {
+        async function openChangelogModal() {
           const modal = document.getElementById('changelogModal');
           const list = document.getElementById('changelogList');
-          modal.style.display = 'flex';
+          if (!modal) return;
+
           modal.classList.add('open');
 
-          if (!activeChangelog || activeChangelog.length === 0) {
-            list.innerHTML = `<div style="color: var(--text-muted); font-size: 13px;">No recent commit history available for this environment.</div>`;
+          if (!selectedHost) {
+            if (list) list.innerHTML = `<div style="color: var(--text-muted); font-size: 13px;">No environment currently selected.</div>`;
             return;
           }
 
-          list.innerHTML = activeChangelog.map(c => `
-            <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; font-size: 13px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                <span style="font-family: 'Fira Code', monospace; font-weight: 600; color: var(--accent-color);">${escapeHTML(c.hash)}</span>
-                <span style="font-size: 11px; color: var(--text-muted);">${escapeHTML(c.date)}</span>
+          if (!activeChangelog || activeChangelog.length === 0) {
+            if (list) list.innerHTML = `<div style="color: var(--text-muted); font-size: 13px; display: flex; align-items: center; gap: 8px;"><span class="btn-spinner"></span> Loading commit history...</div>`;
+            try {
+              const res = await fetch(`/api/hosts/${selectedHost.id}/git-status`, { headers: getAuthHeaders() });
+              const data = await res.json();
+              activeChangelog = data.changelog || [];
+            } catch (e) {
+              console.error('Failed to load changelog:', e);
+            }
+          }
+
+          if (!activeChangelog || activeChangelog.length === 0) {
+            if (list) list.innerHTML = `<div style="color: var(--text-muted); font-size: 13px;">No recent commit history available for this environment.</div>`;
+            return;
+          }
+
+          if (list) {
+            list.innerHTML = activeChangelog.map(c => `
+              <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; font-size: 13px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                  <span style="font-family: 'Fira Code', monospace; font-weight: 600; color: var(--accent-color);">${escapeHTML(c.hash)}</span>
+                  <span style="font-size: 11px; color: var(--text-muted);">${escapeHTML(c.date)}</span>
+                </div>
+                <div style="color: var(--text-main); font-weight: 500; margin-bottom: 4px;">${escapeHTML(c.subject)}</div>
+                <div style="font-size: 11px; color: var(--text-muted);">Author: ${escapeHTML(c.author)}</div>
               </div>
-              <div style="color: var(--text-main); font-weight: 500; margin-bottom: 4px;">${escapeHTML(c.subject)}</div>
-              <div style="font-size: 11px; color: var(--text-muted);">Author: ${escapeHTML(c.author)}</div>
-            </div>
-          `).join('');
+            `).join('');
+          }
         }
 
         function closeChangelogModal() {
-          document.getElementById('changelogModal').style.display = 'none';
-          document.getElementById('changelogModal').classList.remove('open');
+          const modal = document.getElementById('changelogModal');
+          if (modal) {
+            modal.classList.remove('open');
+          }
         }
 
         // Select active environment
         function selectHost(host) {
           selectedHost = host;
+          activeChangelog = [];
           renderHostList();
 
           document.getElementById('emptyState').style.display = 'none';

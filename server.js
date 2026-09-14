@@ -657,14 +657,14 @@ app.get('/api/hosts/:id/git-status', authMiddleware, (req, res) => {
     const gitUrlFormatted = formatGitUrl(host.gitUrl);
     const fetchCmd = host.gitUrl ? `git remote set-url origin "${gitUrlFormatted}" 2>/dev/null; git fetch origin "${targetBranch}" 2>/dev/null` : `git fetch origin "${targetBranch}" 2>/dev/null`;
 
-    exec(fetchCmd, { cwd: host.projectDir }, () => {
+    exec(fetchCmd, { cwd: host.projectDir, timeout: 6000 }, () => {
       exec('git rev-parse --short HEAD', { cwd: host.projectDir }, (err1, headOut) => {
         const currentCommit = err1 ? 'Unknown' : headOut.trim();
         exec(`git rev-parse --short origin/${targetBranch}`, { cwd: host.projectDir }, (err2, remoteOut) => {
           const remoteCommit = err2 ? currentCommit : remoteOut.trim();
           const hasUpdate = Boolean(currentCommit && remoteCommit && currentCommit !== remoteCommit && remoteCommit !== 'Unknown');
 
-          exec('git log -n 5 --pretty=format:"%h|%s|%cr|%an"', { cwd: host.projectDir }, (err3, logOut) => {
+          exec('git log -n 10 --pretty=format:"%h|%s|%cr|%an"', { cwd: host.projectDir }, (err3, logOut) => {
             const changelog = (logOut || '').split('\n').filter(Boolean).map(line => {
               const parts = line.split('|');
               return { hash: parts[0] || '', subject: parts[1] || '', date: parts[2] || '', author: parts[3] || '' };
