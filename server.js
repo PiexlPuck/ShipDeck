@@ -13,27 +13,43 @@ const wss = new WebSocket.Server({ noServer: true });
 const PORT = process.env.PORT || 8765;
 
 // Load optional local dashboard .env configs natively from root or mounted data subdirectories
+const rootEnv = path.join(__dirname, '.env');
+const persistentEnv = path.join(__dirname, 'data', '.env');
+
+// Restore .env from persistent storage if root .env was lost on rebuild
+try {
+  const isRootMissing = !fs.existsSync(rootEnv) || (fs.existsSync(rootEnv) && fs.statSync(rootEnv).isDirectory());
+  if (isRootMissing && fs.existsSync(persistentEnv) && fs.statSync(persistentEnv).isFile()) {
+    if (!fs.existsSync(rootEnv)) {
+      fs.copyFileSync(persistentEnv, rootEnv);
+      console.log('Restored .env from data/.env after container rebuild.');
+    }
+  }
+} catch (e) { }
+
 const envPaths = [
-  path.join(__dirname, '.env'),
-  path.join(__dirname, 'data', '.env'),
+  rootEnv,
+  persistentEnv,
   path.join(process.cwd(), '.env')
 ];
 for (const p of envPaths) {
   if (fs.existsSync(p)) {
     try {
-      const envContent = fs.readFileSync(p, 'utf8');
-      envContent.split(/\r?\n/).forEach(line => {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) return;
-        const index = trimmed.indexOf('=');
-        if (index > 0) {
-          const key = trimmed.slice(0, index).trim();
-          const value = trimmed.slice(index + 1).trim().replace(/^['"]|['"]$/g, '');
-          if (!process.env[key]) {
-            process.env[key] = value;
+      if (fs.statSync(p).isFile()) {
+        const envContent = fs.readFileSync(p, 'utf8');
+        envContent.split(/\r?\n/).forEach(line => {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) return;
+          const index = trimmed.indexOf('=');
+          if (index > 0) {
+            const key = trimmed.slice(0, index).trim();
+            const value = trimmed.slice(index + 1).trim().replace(/^['"]|['"]$/g, '');
+            if (!process.env[key]) {
+              process.env[key] = value;
+            }
           }
-        }
-      });
+        });
+      }
     } catch (err) {
       console.error(`Error loading env from ${p}:`, err);
     }
@@ -774,7 +790,29 @@ app.get('/api/system-status', authMiddleware, (req, res) => {
   });
 });
 
-// Get .env file inside project host (with persistent volume auto-restore)
+// Helper to resolve the location of the .env file for local hosts
+function resolveEnvPath(projectDir) {
+  const directPath = path.resolve(projectDir, '.env');
+  if (fs.existsSync(directPath)) {
+    try {
+      if (fs.statSync(directPath).isFile()) {
+        return directPath;
+      }
+    } catch (e) { }
+  }
+  // Check if data/.env exists (e.g. for persisted container volumes)
+  const dataEnv = path.resolve(projectDir, 'data', '.env');
+  if (fs.existsSync(dataEnv)) {
+    try {
+      if (fs.statSync(dataEnv).isFile()) {
+        return dataEnv;
+      }
+    } catch (e) { }
+  }
+  return directPath;
+}
+
+// Get .env file inside project host
 app.get('/api/hosts/:id/env', authMiddleware, (req, res) => {
   const { id } = req.params;
   const hosts = getHosts();
@@ -788,30 +826,22 @@ app.get('/api/hosts/:id/env', authMiddleware, (req, res) => {
     return res.status(403).json({ error: 'Forbidden. Access to env file is restricted.' });
   }
 
-  const backupDir = path.join(__dirname, 'data', 'envs');
-  const backupFile = path.join(backupDir, `${id}.env`);
-
   if (host.type === 'local') {
-    const envPath = path.resolve(host.projectDir, '.env');
+    const envPath = resolveEnvPath(host.projectDir);
     if (!fs.existsSync(envPath)) {
-      if (fs.existsSync(backupFile)) {
-        try {
-          const backupContent = fs.readFileSync(backupFile, 'utf8');
-          fs.writeFileSync(envPath, backupContent, 'utf8');
-          return res.json({ permission, content: backupContent });
-        } catch (e) { }
-      }
-      return res.json({ permission, content: '' });
+      return res.json({ permission, content: '', filename: '.env' });
     }
-    fs.readFile(envPath, 'utf8', (err, data) => {
-      if (err) {
-        return res.status(500).json({ error: `Failed to read local env: ${err.message}` });
+
+    try {
+      const stat = fs.statSync(envPath);
+      if (stat.isDirectory()) {
+        return res.json({ permission, content: '', filename: '.env' });
       }
-      // Save a sync copy to persistent backup
-      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
-      fs.writeFile(backupFile, data, () => { });
-      res.json({ permission, content: data });
-    });
+      const data = fs.readFileSync(envPath, 'utf8');
+      res.json({ permission, content: data, filename: '.env' });
+    } catch (err) {
+      return res.status(500).json({ error: `Failed to read local env: ${err.message}` });
+    }
   } else {
     const conn = new Client();
     conn.on('ready', () => {
@@ -823,20 +853,12 @@ app.get('/api/hosts/:id/env', authMiddleware, (req, res) => {
         let output = '';
         stream.on('data', (data) => {
           output += data;
-          if (output.length > 500000) {
+          if (output.length > 1000000) {
             stream.destroy();
           }
-        }).on('close', (code) => {
+        }).on('close', () => {
           conn.end();
-          if (!output.trim() && fs.existsSync(backupFile)) {
-            try {
-              output = fs.readFileSync(backupFile, 'utf8');
-            } catch (e) { }
-          } else if (output.trim()) {
-            if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
-            fs.writeFile(backupFile, output, () => { });
-          }
-          res.json({ permission, content: output });
+          res.json({ permission, content: output, filename: '.env' });
         });
       });
     }).on('error', (err) => {
@@ -871,18 +893,35 @@ app.post('/api/hosts/:id/env', authMiddleware, (req, res) => {
     return res.status(403).json({ error: 'Forbidden. Write access is restricted.' });
   }
 
-  const backupDir = path.join(__dirname, 'data', 'envs');
-  if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
-  const backupFile = path.join(backupDir, `${id}.env`);
-  fs.writeFileSync(backupFile, content, 'utf8');
-
   if (host.type === 'local') {
-    const envPath = path.resolve(host.projectDir, '.env');
+    let envPath = path.resolve(host.projectDir, '.env');
+    // If envPath is a directory (Docker mount artifact), write to data/.env
+    try {
+      if (fs.existsSync(envPath) && fs.statSync(envPath).isDirectory()) {
+        envPath = path.resolve(host.projectDir, 'data', '.env');
+      }
+    } catch (e) { }
+
+    const targetDir = path.dirname(envPath);
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+
     fs.writeFile(envPath, content, 'utf8', (err) => {
       if (err) {
         return res.status(500).json({ error: `Failed to save local env file: ${err.message}` });
       }
-      res.json({ message: '.env file successfully updated.' });
+
+      // Also persist to data/.env so container rebuilds can never wipe the dashboard env
+      if (host.id === 'local-docker' || host.projectDir === '/app') {
+        try {
+          const dataDir = path.join(__dirname, 'data');
+          if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+          fs.writeFileSync(path.join(dataDir, '.env'), content, 'utf8');
+        } catch (e) { }
+      }
+
+      res.json({ message: '.env file successfully updated.', filename: '.env' });
     });
   } else {
     const base64Content = Buffer.from(content).toString('base64');
@@ -897,7 +936,7 @@ app.post('/api/hosts/:id/env', authMiddleware, (req, res) => {
         stream.on('close', (code) => {
           conn.end();
           if (code === 0) {
-            res.json({ message: '.env file successfully updated remotely.' });
+            res.json({ message: '.env file successfully updated remotely.', filename: '.env' });
           } else {
             res.status(500).json({ error: `Remote write command closed with failure code: ${code}` });
           }

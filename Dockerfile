@@ -25,5 +25,8 @@ COPY favicon.svg ./
 # Expose port (default 3000)
 EXPOSE 8765
 
+# Ensure .env file and data directory exist inside image
+RUN touch .env && mkdir -p /app/data
+
 # Start server
 CMD ["node", "server.js"]
