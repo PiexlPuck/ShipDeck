@@ -197,19 +197,20 @@
     }
 
     .sidebar-header {
-      padding: 24px;
+      padding: 16px 20px;
       display: flex;
       justify-content: space-between;
       align-items: center;
       border-bottom: 1px solid var(--border-color);
+      gap: 8px;
     }
 
     .sidebar-title {
-      font-size: 16px;
-      font-weight: 600;
+      font-size: 13px;
+      font-weight: 700;
       color: var(--text-muted);
       text-transform: uppercase;
-      letter-spacing: 1px;
+      letter-spacing: 0.8px;
     }
 
     .btn {
@@ -1155,17 +1156,13 @@
   <div class="main-container">
 
     <!-- Sidebar: Host list -->
-    <div class="sidebar">
     <div class="sidebar" id="sidebar">
       <div class="sidebar-header">
-        <span class="sidebar-title">Environments</span>
-        <button class="btn btn-primary" id="addHostBtn" onclick="openHostModal()">
-          <span style="font-size: 16px; font-weight: bold;">+</span> Add Host
         <div style="display: flex; align-items: center; gap: 8px;">
           <span class="sidebar-title">Environments</span>
           <span class="badge-count" id="hostCountBadge">0</span>
         </div>
-        <button class="btn btn-primary" id="addHostBtn" onclick="openHostModal()" style="padding: 6px 12px; font-size: 12px;">
+        <button class="btn btn-primary" id="addHostBtn" onclick="openHostModal()" style="padding: 6px 12px; font-size: 12px; white-space: nowrap; flex-shrink: 0;">
           <span style="font-size: 14px; font-weight: bold;">+</span> Add Host
         </button>
       </div>
@@ -1179,6 +1176,18 @@
 
     <!-- Main deployment dashboard panel -->
     <div class="dashboard-panel" id="dashboardPanel">
+      <!-- Docker Socket Permission Warning Banner -->
+      <div id="socketWarningBanner" style="display: none; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 14px 18px; color: var(--error); font-size: 13px; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 20px;">⚠️</span>
+          <div>
+            <div style="font-weight: 600; margin-bottom: 2px;">Docker Socket Permission Issue</div>
+            <div id="socketWarningText" style="color: var(--text-muted); font-size: 12px;">ShipDeck cannot communicate with /var/run/docker.sock. Run <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; color: #f87171;">sudo chmod 666 /var/run/docker.sock</code> on your server.</div>
+          </div>
+        </div>
+        <button class="btn btn-secondary font-btn" onclick="document.getElementById('socketWarningBanner').style.display='none'" style="padding: 4px 8px; font-size: 11px;">Dismiss</button>
+      </div>
+
       <div class="empty-state" id="emptyState">
         <div class="empty-state-icon">📂</div>
         <h3>No Target Host Selected</h3>
@@ -1251,10 +1260,6 @@
 
         <div class="terminal-container" id="terminalContainer">
           <div class="terminal-header">
-            <div class="terminal-dots">
-              <div class="terminal-dot" style="background:#ef4444;"></div>
-              <div class="terminal-dot" style="background:#f59e0b;"></div>
-              <div class="terminal-dot" style="background:#10b981;"></div>
             <div style="display: flex; align-items: center; gap: 12px;">
               <div class="terminal-dots">
                 <div class="terminal-dot" style="background:#ef4444;"></div>
@@ -1264,7 +1269,6 @@
               <span id="terminalStatusBadge" class="terminal-status-badge">STANDBY</span>
               <span id="terminalStatus" style="font-size: 11px; color: var(--text-muted);">Idle</span>
             </div>
-            <div id="terminalStatus">TERMINAL: STANDBY</div>
             <div class="terminal-header-controls">
               <button class="term-btn" onclick="copyTerminalOutput()" title="Copy terminal output to clipboard">
                 📋 Copy
@@ -1781,13 +1785,13 @@
 
         // Run when page loads
         window.onload = async () => {
-          initTerminal();
-          await fetchAuthStatus();
-          await loadHosts();
-          await checkDockerSocketStatus();
+          try { initTerminal(); } catch (e) { console.warn('Terminal init error:', e); }
+          try { await fetchAuthStatus(); } catch (e) { console.warn('Auth status error:', e); }
+          try { await loadHosts(); } catch (e) { console.warn('Load hosts error:', e); }
+          try { await checkDockerSocketStatus(); } catch (e) { console.warn('Docker socket status error:', e); }
 
           window.addEventListener('resize', () => {
-            if (fitAddon) fitAddon.fit();
+            try { if (fitAddon) fitAddon.fit(); } catch (e) { }
           });
         };
 
@@ -1893,17 +1897,29 @@
             const data = await response.json();
             const dot = document.getElementById('dockerSocketDot');
             const text = document.getElementById('dockerSocketText');
+            const banner = document.getElementById('socketWarningBanner');
+            const warningText = document.getElementById('socketWarningText');
 
             if (data.dockerConnected) {
-              dot.className = 'status-dot online';
-              text.innerHTML = '<span style="color:var(--success)">Docker Daemon Connected</span>';
+              if (dot) dot.className = 'status-dot online';
+              if (text) text.innerHTML = '<span style="color:var(--success)">Docker Daemon Connected</span>';
+              if (banner) banner.style.display = 'none';
             } else {
-              dot.className = 'status-dot offline';
-              text.innerHTML = '<span style="color:var(--error)" title="' + escapeHTML(data.message) + '">Docker Engine Disconnected</span>';
+              if (dot) dot.className = 'status-dot offline';
+              if (text) text.innerHTML = '<span style="color:var(--error)" title="' + escapeHTML(data.message) + '">Docker Engine Disconnected</span>';
+
+              if (data.permissionDenied && banner) {
+                banner.style.display = 'flex';
+                if (warningText && data.commandAdvice) {
+                  warningText.innerHTML = `ShipDeck cannot access <code style="background:rgba(0,0,0,0.3); padding:2px 6px; border-radius:4px; color:#f87171;">/var/run/docker.sock</code> (permission denied). Run on your server: <code style="background:rgba(0,0,0,0.3); padding:2px 6px; border-radius:4px; color:#67e8f9;">${escapeHTML(data.commandAdvice)}</code>`;
+                }
+              }
             }
           } catch (err) {
-            document.getElementById('dockerSocketDot').className = 'status-dot offline';
-            document.getElementById('dockerSocketText').textContent = 'Docker Socket Local Error';
+            const dot = document.getElementById('dockerSocketDot');
+            const text = document.getElementById('dockerSocketText');
+            if (dot) dot.className = 'status-dot offline';
+            if (text) text.textContent = 'Docker Socket Local Error';
           }
         }
 
@@ -1970,6 +1986,9 @@
             if (response.ok) {
               hosts = await response.json();
               renderHostList();
+              if (!selectedHost && hosts.length > 0) {
+                selectHost(hosts[0]);
+              }
             } else {
               hosts = [];
               renderHostList();
@@ -1994,7 +2013,6 @@
             return;
           }
 
-          hosts.forEach(host => {
           const visibleHosts = hosts.filter(h => {
             if (!hostSearchQuery) return true;
             return (h.name && h.name.toLowerCase().includes(hostSearchQuery)) ||
@@ -2796,8 +2814,6 @@
                 links.forEach(link => {
                   linkButtonsHtml += `
                 <a href="${link.url}" target="_blank" class="btn btn-secondary font-btn" style="padding: 4px 8px; font-size:11px; margin-top:2px; display:inline-flex; align-items:center; gap:4px; text-decoration:none; color:var(--accent-color); width:fit-content;">
-                  🔗 Open App (Port ${link.port})
-                <a href="${link.url}" target="_blank" class="btn btn-secondary font-btn" style="padding: 4px 8px; font-size:11px; display:inline-flex; align-items:center; gap:4px; text-decoration:none; color:var(--accent-color); width:fit-content;">
                   🔗 Port ${link.port}
                 </a>
               `;
@@ -2805,11 +2821,10 @@
               }
 
               let logsButtonHtml = '';
-              if (service && service !== 'unknown') {
+              const logTarget = (service && service !== 'unknown') ? service : name;
+              if (logTarget) {
                 logsButtonHtml = `
-              <button class="btn btn-secondary font-btn" style="padding: 4px 8px; font-size:11px; margin-top:2px; display:inline-flex; align-items:center; gap:4px;" onclick="runAction('container-logs', '${escapeHTML(service)}')">
-                📄 View Logs
-              <button class="btn btn-secondary font-btn" style="padding: 4px 8px; font-size:11px; display:inline-flex; align-items:center; gap:4px;" onclick="runAction('container-logs', '${escapeHTML(service)}')">
+              <button class="btn btn-secondary font-btn" style="padding: 4px 8px; font-size:11px; margin-top:2px; display:inline-flex; align-items:center; gap:4px;" onclick="runAction('container-logs', '${escapeHTML(logTarget)}')">
                 📄 Logs
               </button>
             `;
@@ -2819,18 +2834,12 @@
             <div class="container-card-header">
               <span class="container-card-title" title="${escapeHTML(name)}">${escapeHTML(name)}</span>
               <span class="container-status-badge ${badgeClass}">${stateLabel}</span>
-              <span class="host-badge ${isRunning ? 'perm-user' : 'perm-admin'}" style="font-size: 10px; display: inline-flex; align-items: center; gap: 5px;">
-                <span class="status-dot ${isRunning ? 'online' : 'offline'}" style="width: 6px; height: 6px;"></span>
-                ${stateLabel}
-              </span>
             </div>
             <div class="container-card-meta">
-              <div>Service: <span>${escapeHTML(service)}</span></div>
-              ${ports ? `<div>Exposed Details: <span style="font-family: inherit; font-size:11px;">${escapeHTML(ports)}</span></div>` : ''}
               <div>Service: <span style="font-family: 'Fira Code', monospace; color: var(--accent-color);">${escapeHTML(service)}</span></div>
               ${ports ? `<div>Exposed Details: <span style="font-family: 'Fira Code', monospace; font-size: 11px; color: var(--text-muted);">${escapeHTML(ports)}</span></div>` : ''}
             </div>
-            <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:4px;">
+            <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;">
               ${linkButtonsHtml}
               ${logsButtonHtml}
             </div>

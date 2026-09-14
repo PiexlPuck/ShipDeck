@@ -20,6 +20,7 @@ RUN npm ci --only=production
 COPY server.js ./
 COPY index.html ./
 COPY auth_instructions.md ./
+COPY favicon.svg ./
 
 # Expose port (default 3000)
 EXPOSE 8765

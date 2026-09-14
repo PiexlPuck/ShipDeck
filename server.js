@@ -117,18 +117,40 @@ app.get('/favicon.svg', (req, res) => {
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
 
+function getDefaultHost() {
+  const defaultDir = fs.existsSync('/app') ? '/app' : process.cwd();
+  return {
+    id: 'local-docker',
+    name: 'Local Docker Engine',
+    type: 'local',
+    ip: '',
+    port: 22,
+    user: '',
+    sshKeyPath: '',
+    projectDir: defaultDir,
+    allowedRole: 'user'
+  };
+}
+
 // Load hosts config
 function getHosts() {
   try {
     if (!fs.existsSync(HOSTS_FILE)) {
-      fs.writeFileSync(HOSTS_FILE, JSON.stringify([], null, 2));
-      return [];
+      const initial = [getDefaultHost()];
+      fs.writeFileSync(HOSTS_FILE, JSON.stringify(initial, null, 2));
+      return initial;
     }
     const data = fs.readFileSync(HOSTS_FILE, 'utf8');
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      const initial = [getDefaultHost()];
+      saveHosts(initial);
+      return initial;
+    }
+    return parsed;
   } catch (err) {
     console.error('Error reading hosts file:', err);
-    return [];
+    return [getDefaultHost()];
   }
 }
 
@@ -365,7 +387,7 @@ app.get('/api/hosts/:id/ping', authMiddleware, (req, res) => {
 
     let status = 'Online';
     if (total === 0) {
-      status = 'Offline';
+      status = 'Online';
     } else if (running === 0) {
       status = 'Offline';
     } else if (running < total) {
@@ -377,34 +399,57 @@ app.get('/api/hosts/:id/ping', authMiddleware, (req, res) => {
   };
 
   if (host.type === 'local') {
+    const gitDir = path.join(host.projectDir || '.', '.git');
+    const finishPing = (finalResult) => {
+      if (fs.existsSync(gitDir)) {
+        exec('git log -1 --format="%h - %s (%cr)"', { cwd: host.projectDir }, (gitErr, stdout) => {
+          const version = gitErr ? 'No Version Data' : stdout.trim();
+          res.json({
+            status: finalResult.status,
+            message: `Local host (${finalResult.running}/${finalResult.total} containers running)`,
+            version,
+            containersCount: finalResult.total,
+            containersRunning: finalResult.running
+          });
+        });
+      } else {
+        res.json({
+          status: finalResult.status,
+          message: `Local Docker Engine (${finalResult.running}/${finalResult.total} containers running)`,
+          version: 'Local Docker Engine',
+          containersCount: finalResult.total,
+          containersRunning: finalResult.running
+        });
+      }
+    };
+
     if (fs.existsSync(host.projectDir)) {
-      const gitDir = path.join(host.projectDir, '.git');
       exec('docker compose ps --format json 2>/dev/null || docker compose ps 2>/dev/null', { cwd: host.projectDir }, (dockErr, dockStdout) => {
         evaluateContainers(dockStdout, (cResult) => {
-          if (fs.existsSync(gitDir)) {
-            exec('git log -1 --format="%h - %s (%cr)"', { cwd: host.projectDir }, (gitErr, stdout) => {
-              const version = gitErr ? 'No Version Data' : stdout.trim();
-              res.json({
-                status: cResult.status,
-                message: `Local host (${cResult.running}/${cResult.total} containers running)`,
-                version,
-                containersCount: cResult.total,
-                containersRunning: cResult.running
-              });
-            });
-          } else {
-            res.json({
-              status: cResult.status,
-              message: `Local directory exists (${cResult.running}/${cResult.total} containers running)`,
-              version: 'No Git Repository',
-              containersCount: cResult.total,
-              containersRunning: cResult.running
-            });
+          if (cResult.total > 0) {
+            return finishPing(cResult);
           }
+          exec('docker ps -a --format "{{json .}}" 2>/dev/null', (psErr, psStdout) => {
+            if (!psErr && psStdout && psStdout.trim()) {
+              evaluateContainers(psStdout, (psResult) => {
+                finishPing(psResult);
+              });
+            } else {
+              finishPing(cResult);
+            }
+          });
         });
       });
     } else {
-      res.json({ status: 'Offline', message: 'Local directory path does not exist on dashboard server.', version: 'Unknown', containersCount: 0, containersRunning: 0 });
+      exec('docker ps -a --format "{{json .}}" 2>/dev/null', (psErr, psStdout) => {
+        if (!psErr && psStdout && psStdout.trim()) {
+          evaluateContainers(psStdout, (psResult) => {
+            finishPing(psResult);
+          });
+        } else {
+          res.json({ status: 'Offline', message: 'Local directory path does not exist on dashboard server.', version: 'Unknown', containersCount: 0, containersRunning: 0 });
+        }
+      });
     }
   } else {
     const conn = new Client();
@@ -574,20 +619,60 @@ app.get('/api/hosts/:id/containers', authMiddleware, (req, res) => {
     }
   };
 
+  const parseDockerPsOutput = (stdout) => {
+    const lines = (stdout || '').trim().split('\n').map(l => l.trim()).filter(Boolean);
+    const results = [];
+    for (const line of lines) {
+      try {
+        const item = JSON.parse(line);
+        let service = item.Names || item.ID || 'container';
+        if (item.Labels) {
+          const match = item.Labels.match(/com\.docker\.compose\.service=([^,]+)/);
+          if (match && match[1]) {
+            service = match[1];
+          }
+        }
+        results.push({
+          Name: item.Names || item.ID || 'container',
+          Service: service,
+          State: item.State || item.Status || '',
+          Status: item.Status || item.State || '',
+          Ports: item.Ports || ''
+        });
+      } catch (e) { }
+    }
+    return results;
+  };
+
   if (host.type === 'local') {
-    exec('docker compose ps --format json || docker-compose ps --format json', { cwd: host.projectDir }, (err, stdout) => {
-      if (!err && stdout.trim()) {
-        return res.json(parseOutput(stdout));
-      }
-      exec('docker compose ps || docker-compose ps', { cwd: host.projectDir }, (plainErr, plainStdout) => {
-        if (plainErr) return res.json([]);
-        return res.json(parseOutput(plainStdout));
+    const fallbackToDockerPs = () => {
+      exec('docker ps -a --format "{{json .}}" 2>/dev/null', (psErr, psStdout) => {
+        if (psErr || !psStdout || !psStdout.trim()) return res.json([]);
+        return res.json(parseDockerPsOutput(psStdout));
       });
-    });
+    };
+
+    if (fs.existsSync(host.projectDir)) {
+      exec('docker compose ps --format json 2>/dev/null || docker-compose ps --format json 2>/dev/null', { cwd: host.projectDir }, (err, stdout) => {
+        if (!err && stdout.trim()) {
+          const parsed = parseOutput(stdout);
+          if (parsed && parsed.length > 0) return res.json(parsed);
+        }
+        exec('docker compose ps 2>/dev/null || docker-compose ps 2>/dev/null', { cwd: host.projectDir }, (plainErr, plainStdout) => {
+          if (!plainErr && plainStdout.trim()) {
+            const parsedPlain = parseOutput(plainStdout);
+            if (parsedPlain && parsedPlain.length > 0) return res.json(parsedPlain);
+          }
+          fallbackToDockerPs();
+        });
+      });
+    } else {
+      fallbackToDockerPs();
+    }
   } else {
     const conn = new Client();
     conn.on('ready', () => {
-      conn.exec(`cd "${host.projectDir}" && (docker compose ps --format json || docker-compose ps --format json || docker compose ps || docker-compose ps)`, (err, stream) => {
+      conn.exec(`cd "${host.projectDir}" 2>/dev/null && (docker compose ps --format json 2>/dev/null || docker-compose ps --format json 2>/dev/null || docker compose ps 2>/dev/null || docker-compose ps 2>/dev/null)`, (err, stream) => {
         if (err) {
           conn.end();
           return res.json([]);
@@ -596,8 +681,24 @@ app.get('/api/hosts/:id/containers', authMiddleware, (req, res) => {
         stream.on('data', (data) => {
           output += data;
         }).on('close', (code) => {
-          conn.end();
-          res.json(parseOutput(output));
+          const parsed = parseOutput(output);
+          if (parsed && parsed.length > 0) {
+            conn.end();
+            return res.json(parsed);
+          }
+          conn.exec('docker ps -a --format "{{json .}}" 2>/dev/null', (psErr, psStream) => {
+            if (psErr) {
+              conn.end();
+              return res.json([]);
+            }
+            let psOutput = '';
+            psStream.on('data', (psData) => {
+              psOutput += psData;
+            }).on('close', () => {
+              conn.end();
+              res.json(parseDockerPsOutput(psOutput));
+            });
+          });
         });
       });
     }).on('error', () => {
@@ -652,14 +753,21 @@ app.get('/api/system-status', authMiddleware, (req, res) => {
 
   exec('docker info', (err, stdout, stderr) => {
     if (err) {
+      const errCombined = ((err.message || '') + ' ' + (stderr || '')).toLowerCase();
+      const isPermissionDenied = errCombined.includes('permission denied');
       return res.json({
         dockerConnected: false,
-        message: 'Docker daemon is not reached inside dashboard: ' + err.message,
+        permissionDenied: isPermissionDenied,
+        commandAdvice: isPermissionDenied ? 'sudo chmod 666 /var/run/docker.sock' : null,
+        message: isPermissionDenied
+          ? 'Docker socket permission denied. Run "sudo chmod 666 /var/run/docker.sock" on your server host.'
+          : 'Docker daemon is not reached inside dashboard: ' + err.message,
         hasSocket: hasLinuxSocket
       });
     }
     res.json({
       dockerConnected: true,
+      permissionDenied: false,
       message: 'Docker daemon is accessible.',
       hasSocket: hasLinuxSocket
     });
@@ -1081,7 +1189,7 @@ wss.on('connection', (ws, request) => {
       return;
     }
     const cleanContainer = container.replace(/[^a-zA-Z0-9_\-]/g, '');
-    commandStr = `docker compose logs --tail=100 -f ${cleanContainer} || docker-compose logs --tail=100 -f ${cleanContainer}`;
+    commandStr = `docker compose logs --tail=100 -f ${cleanContainer} 2>/dev/null || docker-compose logs --tail=100 -f ${cleanContainer} 2>/dev/null || docker logs --tail=100 -f ${cleanContainer}`;
   } else {
     ws.send(`\r\n\x1b[31mError: Invalid action '${action}' requested.\x1b[0m\r\n`);
     ws.close();
