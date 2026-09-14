@@ -910,6 +910,36 @@ function resolveEnvPath(projectDir) {
   return directPath;
 }
 
+// Helper to resolve the location of .env.example for local hosts
+function resolveEnvExamplePath(projectDir) {
+  const candidates = [
+    path.resolve(projectDir, '.env.example'),
+    path.resolve(projectDir, 'env.example'),
+    path.resolve(projectDir, '.env.sample'),
+    path.resolve(projectDir, 'env.sample'),
+    path.resolve(projectDir, '.env.template')
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      try {
+        if (fs.statSync(c).isFile()) return c;
+      } catch (e) { }
+    }
+  }
+  const defaultAppCandidates = [
+    path.resolve(__dirname, '.env.example'),
+    '/app/.env.example'
+  ];
+  for (const c of defaultAppCandidates) {
+    if (fs.existsSync(c)) {
+      try {
+        if (fs.statSync(c).isFile()) return c;
+      } catch (e) { }
+    }
+  }
+  return path.resolve(projectDir, '.env.example');
+}
+
 // Get .env file inside project host
 app.get('/api/hosts/:id/env', authMiddleware, (req, res) => {
   const { id } = req.params;
@@ -1035,6 +1065,140 @@ app.post('/api/hosts/:id/env', authMiddleware, (req, res) => {
           conn.end();
           if (code === 0) {
             res.json({ message: '.env file successfully updated remotely.', filename: '.env' });
+          } else {
+            res.status(500).json({ error: `Remote write command closed with failure code: ${code}` });
+          }
+        });
+      });
+    }).on('error', (err) => {
+      res.status(500).json({ error: `SSH Connection failed: ${err.message}` });
+    }).connect({
+      host: host.ip,
+      port: host.port,
+      username: host.user,
+      privateKey: fs.existsSync(host.sshKeyPath) ? fs.readFileSync(host.sshKeyPath) : host.sshKeyPath,
+      readyTimeout: 5000
+    });
+  }
+});
+
+// Get .env.example template file inside project host
+app.get('/api/hosts/:id/env-example', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  const hosts = getHosts();
+  const host = hosts.find(h => h.id === id);
+  if (!host) {
+    return res.status(404).json({ error: 'Host not found' });
+  }
+
+  const hostRole = host.allowedRole || 'admin';
+  if (hostRole === 'admin' && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Forbidden. Access restricted.' });
+  }
+
+  // Permission for viewing .env.example: admin gets write, user gets read
+  const permission = req.user.role === 'admin' ? 'write' : 'read';
+
+  if (host.type === 'local') {
+    const examplePath = resolveEnvExamplePath(host.projectDir || '.');
+    if (!fs.existsSync(examplePath)) {
+      return res.json({
+        permission,
+        content: '# No .env.example found for this environment.\n# You can create one here or copy from your project repository.\n',
+        filename: '.env.example',
+        exists: false
+      });
+    }
+
+    try {
+      const stat = fs.statSync(examplePath);
+      if (stat.isDirectory()) {
+        return res.json({
+          permission,
+          content: '# No .env.example found for this environment.\n',
+          filename: '.env.example',
+          exists: false
+        });
+      }
+      const data = fs.readFileSync(examplePath, 'utf8');
+      res.json({ permission, content: data, filename: path.basename(examplePath), exists: true });
+    } catch (err) {
+      return res.status(500).json({ error: `Failed to read local env.example: ${err.message}` });
+    }
+  } else {
+    const conn = new Client();
+    conn.on('ready', () => {
+      const cmd = `if [ -f "${host.projectDir}/.env.example" ]; then cat "${host.projectDir}/.env.example"; elif [ -f "${host.projectDir}/env.example" ]; then cat "${host.projectDir}/env.example"; else echo "# No .env.example found on remote host."; fi`;
+      conn.exec(cmd, (err, stream) => {
+        if (err) {
+          conn.end();
+          return res.status(500).json({ error: `SSH Command execution failed: ${err.message}` });
+        }
+        let output = '';
+        stream.on('data', (data) => {
+          output += data;
+          if (output.length > 1000000) stream.destroy();
+        }).on('close', () => {
+          conn.end();
+          res.json({ permission, content: output, filename: '.env.example', exists: !output.includes('# No .env.example') });
+        });
+      });
+    }).on('error', (err) => {
+      res.status(500).json({ error: `SSH Connection error: ${err.message}` });
+    }).connect({
+      host: host.ip,
+      port: host.port,
+      username: host.user,
+      privateKey: fs.existsSync(host.sshKeyPath) ? fs.readFileSync(host.sshKeyPath) : host.sshKeyPath,
+      readyTimeout: 5000
+    });
+  }
+});
+
+// Save .env.example template file inside project host
+app.post('/api/hosts/:id/env-example', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  const hosts = getHosts();
+  const host = hosts.find(h => h.id === id);
+  if (!host) {
+    return res.status(404).json({ error: 'Host not found' });
+  }
+
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Forbidden. Admin role required to edit .env.example.' });
+  }
+
+  const { content } = req.body;
+  if (content === undefined || typeof content !== 'string') {
+    return res.status(400).json({ error: 'Invalid content string in request body.' });
+  }
+
+  if (host.type === 'local') {
+    try {
+      const targetDir = host.projectDir || '.';
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+      const examplePath = resolveEnvExamplePath(targetDir);
+      fs.writeFileSync(examplePath, content, 'utf8');
+      return res.json({ success: true, message: '.env.example updated successfully.', filename: '.env.example' });
+    } catch (err) {
+      return res.status(500).json({ error: `Failed to write .env.example: ${err.message}` });
+    }
+  } else {
+    const base64Content = Buffer.from(content).toString('base64');
+    const conn = new Client();
+    conn.on('ready', () => {
+      const cmd = `mkdir -p "${host.projectDir}" && echo "${base64Content}" | base64 -d > "${host.projectDir}/.env.example"`;
+      conn.exec(cmd, (err, stream) => {
+        if (err) {
+          conn.end();
+          return res.status(500).json({ error: `SSH write failed: ${err.message}` });
+        }
+        stream.on('close', (code) => {
+          conn.end();
+          if (code === 0) {
+            res.json({ success: true, message: '.env.example updated remotely.', filename: '.env.example' });
           } else {
             res.status(500).json({ error: `Remote write command closed with failure code: ${code}` });
           }

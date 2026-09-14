@@ -276,6 +276,25 @@
       color: white;
     }
 
+    .btn-tab {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-tab:hover {
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .btn-tab.active {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: rgba(59, 130, 246, 0.4);
+      color: #93c5fd;
+    }
+
     .host-list {
       padding: 16px;
       display: flex;
@@ -1242,6 +1261,10 @@
           <button class="btn btn-secondary" id="manageEnvBtn" onclick="viewEnvFile()" style="display: none;">
             📝 Manage .env
           </button>
+          <!-- .env.example viewer button -->
+          <button class="btn btn-secondary" id="manageEnvExampleBtn" onclick="viewEnvExampleFile()" style="display: none;">
+            📋 .env.example
+          </button>
           <!-- compose file viewer button -->
           <button class="btn btn-secondary" id="manageComposeBtn" onclick="viewComposeFile()" style="display: none;">
             🐳 Manage Compose
@@ -1433,8 +1456,8 @@
     </div>
   </div>
 
-  <!-- .env File Editor Modal -->
-  <div class="modal-overlay" id="envModalOverlay">
+  <!-- Configuration & .env File Editor Modal -->
+  <div class="modal-overlay" id="envModalOverlay" onclick="if(event.target===this)closeEnvModal()">
     <div class="modal-container" style="width: 720px; max-width: 90vw;">
       <div class="modal-header">
         <div style="display: flex; align-items: center; gap: 8px;">
@@ -1443,9 +1466,25 @@
         </div>
         <button class="close-btn" onclick="closeEnvModal()">&times;</button>
       </div>
+      <div class="editor-tabs-bar" style="display: flex; gap: 6px; padding: 10px 16px 0; border-bottom: 1px solid var(--border-color); background: rgba(0, 0, 0, 0.15);">
+        <button type="button" class="btn-tab active" id="tabEnv" onclick="switchEditorTab('env')" style="border-radius: 6px 6px 0 0; padding: 6px 14px; font-size: 12px; font-weight: 600;">
+          📝 .env
+        </button>
+        <button type="button" class="btn-tab" id="tabEnvExample" onclick="switchEditorTab('env-example')" style="border-radius: 6px 6px 0 0; padding: 6px 14px; font-size: 12px; font-weight: 600;">
+          📋 .env.example
+        </button>
+        <button type="button" class="btn-tab" id="tabCompose" onclick="switchEditorTab('compose')" style="border-radius: 6px 6px 0 0; padding: 6px 14px; font-size: 12px; font-weight: 600;">
+          🐳 docker-compose.yml
+        </button>
+      </div>
       <div class="modal-body" style="padding: 16px;">
         <div class="form-group" style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
-          <label for="envContents" id="envModalFileLabel">File Buffer (.env)</label>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label for="envContents" id="envModalFileLabel">File Buffer (.env)</label>
+            <button type="button" class="btn btn-secondary font-btn" id="copyToEnvBtn" onclick="copyExampleToEnv()" style="display: none; padding: 3px 8px; font-size: 11px;">
+              ⬇️ Copy Template to .env
+            </button>
+          </div>
           <textarea id="envContents" class="form-input"
             style="flex: 1; min-height: 280px; font-family: 'Fira Code', monospace; font-size: 13px; background: #020617; color: #cbd5e1; border-color: var(--border-color); resize: vertical; line-height: 1.5;"
             placeholder="# Add environment configurations..."></textarea>
@@ -2226,12 +2265,15 @@
           // Toggle .env viewer button visibility based on client-side check
           const envPerm = getClientEnvPermission(host);
           const envBtn = document.getElementById('manageEnvBtn');
+          const envExampleBtn = document.getElementById('manageEnvExampleBtn');
           const composeBtn = document.getElementById('manageComposeBtn');
           if (envPerm !== 'none') {
             envBtn.style.display = 'inline-flex';
+            if (envExampleBtn) envExampleBtn.style.display = 'inline-flex';
             composeBtn.style.display = 'inline-flex';
           } else {
             envBtn.style.display = 'none';
+            if (envExampleBtn) envExampleBtn.style.display = 'none';
             composeBtn.style.display = 'none';
           }
 
@@ -2637,8 +2679,8 @@
           }
         }
 
-        // Modal show/submit methods for .env and compose configurations
-        let activeEditorMode = 'env'; // 'env' or 'compose'
+        // Modal show/submit methods for .env, .env.example, and compose configurations
+        let activeEditorMode = 'env'; // 'env', 'env-example', or 'compose'
 
         async function openEditorModal(mode) {
           if (!selectedHost) return;
@@ -2648,9 +2690,19 @@
           const textarea = document.getElementById('envContents');
           const badge = document.getElementById('envPermissionBadge');
           const saveBtn = document.getElementById('saveEnvBtn');
+          const copyToEnvBtn = document.getElementById('copyToEnvBtn');
           const status = document.getElementById('envSaveStatus');
           const modalTitle = document.getElementById('envModalTitle');
           const fileLabel = document.getElementById('envModalFileLabel');
+
+          // Highlight active tab
+          ['tabEnv', 'tabEnvExample', 'tabCompose'].forEach(tabId => {
+            const el = document.getElementById(tabId);
+            if (el) el.classList.remove('active');
+          });
+          const activeTabMap = { 'env': 'tabEnv', 'env-example': 'tabEnvExample', 'compose': 'tabCompose' };
+          const activeTabEl = document.getElementById(activeTabMap[mode]);
+          if (activeTabEl) activeTabEl.classList.add('active');
 
           textarea.value = '';
           badge.className = 'host-badge';
@@ -2660,10 +2712,17 @@
             modalTitle.textContent = 'Manage Environment Variables (.env)';
             fileLabel.textContent = 'File Buffer (.env)';
             status.textContent = 'Loading env contents...';
+            if (copyToEnvBtn) copyToEnvBtn.style.display = 'none';
+          } else if (mode === 'env-example') {
+            modalTitle.textContent = 'Environment Template (.env.example)';
+            fileLabel.textContent = 'Template Buffer (.env.example)';
+            status.textContent = 'Loading .env.example template...';
+            if (copyToEnvBtn) copyToEnvBtn.style.display = 'inline-flex';
           } else {
             modalTitle.textContent = 'Manage Docker Compose Configuration';
             fileLabel.textContent = 'File Buffer';
             status.textContent = 'Loading compose contents...';
+            if (copyToEnvBtn) copyToEnvBtn.style.display = 'none';
           }
 
           saveBtn.disabled = true;
@@ -2672,7 +2731,7 @@
           overlay.classList.add('open');
 
           try {
-            const endpoint = mode === 'env' ? 'env' : 'compose';
+            const endpoint = mode; // 'env', 'env-example', or 'compose'
             const response = await fetch(`/api/hosts/${selectedHost.id}/${endpoint}`, { headers: getAuthHeaders() });
             if (!response.ok) {
               const err = await response.json();
@@ -2689,6 +2748,9 @@
             if (mode === 'compose' && data.filename) {
               modalTitle.textContent = `Manage Docker Compose Config (${data.filename})`;
               fileLabel.textContent = `File Buffer (${data.filename})`;
+            } else if (mode === 'env-example' && data.filename) {
+              modalTitle.textContent = `Environment Template (${data.filename})`;
+              fileLabel.textContent = `Template Buffer (${data.filename})`;
             }
 
             if (data.permission === 'write') {
@@ -2696,14 +2758,13 @@
               badge.className = 'host-badge perm-user'; // green
               saveBtn.disabled = false;
               textarea.readOnly = false;
-              status.textContent = 'File editable. Modify contents and click save.';
               status.textContent = 'File editable. Press Ctrl+S to save changes.';
             } else {
               badge.textContent = 'Read-Only';
               badge.className = 'host-badge perm-admin'; // red
               saveBtn.disabled = true;
               textarea.readOnly = true;
-              status.textContent = 'View only permission. Saving changes is disabled.';
+              status.textContent = mode === 'env-example' ? 'Template view mode. Use "Copy Template to .env" to populate your config.' : 'View only permission. Saving changes is disabled.';
             }
           } catch (err) {
             console.error('Failed fetching file payload:', err);
@@ -2717,8 +2778,41 @@
           openEditorModal('env');
         }
 
+        function viewEnvExampleFile() {
+          openEditorModal('env-example');
+        }
+
         function viewComposeFile() {
           openEditorModal('compose');
+        }
+
+        function switchEditorTab(mode) {
+          openEditorModal(mode);
+        }
+
+        async function copyExampleToEnv() {
+          const textarea = document.getElementById('envContents');
+          const exampleContent = textarea.value;
+          if (!exampleContent || !exampleContent.trim()) {
+            showToast('Template buffer is empty', 'warning');
+            return;
+          }
+          await openEditorModal('env');
+          document.getElementById('envContents').value = exampleContent;
+          showToast('Populated .env from .env.example! Click Save Config to apply.', 'info');
+        }
+
+        function copyEditorContent() {
+          const textarea = document.getElementById('envContents');
+          if (!textarea || !textarea.value) {
+            showToast('Buffer is empty', 'warning');
+            return;
+          }
+          navigator.clipboard.writeText(textarea.value).then(() => {
+            showToast('Buffer copied to clipboard!', 'success');
+          }).catch(() => {
+            showToast('Failed to copy to clipboard', 'error');
+          });
         }
 
         function closeEnvModal() {
@@ -2737,7 +2831,7 @@
           textarea.disabled = true;
 
           try {
-            const endpoint = activeEditorMode === 'env' ? 'env' : 'compose';
+            const endpoint = activeEditorMode; // 'env', 'env-example', or 'compose'
             const response = await fetch(`/api/hosts/${selectedHost.id}/${endpoint}`, {
               method: 'POST',
               headers: getAuthHeaders(),
@@ -2745,10 +2839,12 @@
             });
 
             if (response.ok) {
-              status.textContent = 'Changes saved successfully.';
-              alert('Success: file updated.');
-              showToast('File updated successfully.', 'success');
-              closeEnvModal();
+              const fileDesc = activeEditorMode === 'env' ? '.env' : (activeEditorMode === 'env-example' ? '.env.example' : 'compose file');
+              status.textContent = `Changes saved successfully to ${fileDesc}.`;
+              showToast(`File ${fileDesc} updated successfully.`, 'success');
+              setTimeout(() => {
+                closeEnvModal();
+              }, 700);
             } else {
               const err = await response.json();
               status.textContent = 'Error: ' + err.error;
