@@ -842,6 +842,254 @@
       color: var(--text-main);
       font-weight: 500;
     }
+
+    /* Toast Notification System */
+    .toast-container {
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 10000;
+      pointer-events: none;
+      max-width: 380px;
+      width: calc(100vw - 48px);
+    }
+
+    .toast {
+      background: rgba(19, 28, 49, 0.95);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 12px 16px;
+      color: var(--text-main);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      pointer-events: auto;
+      transform: translateX(120%);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+      opacity: 0;
+    }
+
+    .toast.show {
+      transform: translateX(0);
+      opacity: 1;
+    }
+
+    .toast-icon {
+      font-size: 16px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .toast-body {
+      flex: 1;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .toast-title {
+      font-weight: 600;
+      margin-bottom: 2px;
+      font-size: 13px;
+    }
+
+    .toast-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+      padding: 0;
+      transition: color 0.15s;
+    }
+
+    .toast-close:hover {
+      color: var(--text-main);
+    }
+
+    .toast-success { border-left: 3px solid var(--success); }
+    .toast-success .toast-title { color: #34d399; }
+
+    .toast-error { border-left: 3px solid var(--error); }
+    .toast-error .toast-title { color: #f87171; }
+
+    .toast-warning { border-left: 3px solid var(--warning); }
+    .toast-warning .toast-title { color: #fbbf24; }
+
+    .toast-info { border-left: 3px solid var(--accent-color); }
+    .toast-info .toast-title { color: #60a5fa; }
+
+    /* Sidebar Search & Badge */
+    .sidebar-search-container {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border-color);
+      background: rgba(0, 0, 0, 0.1);
+    }
+
+    .sidebar-search-input {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 8px 12px;
+      color: var(--text-main);
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .sidebar-search-input:focus {
+      border-color: var(--accent-color);
+      background: rgba(255, 255, 255, 0.08);
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+
+    .badge-count {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-muted);
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-weight: 600;
+    }
+
+    /* Terminal Controls & Fullscreen */
+    .terminal-header-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .term-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      color: var(--text-muted);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s;
+    }
+
+    .term-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: var(--text-main);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .terminal-container.fullscreen {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      right: 16px;
+      bottom: 16px;
+      z-index: 1000;
+      min-height: calc(100vh - 32px);
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), 0 0 0 1px var(--accent-color);
+    }
+
+    .terminal-status-badge {
+      font-size: 11px;
+      padding: 3px 9px;
+      border-radius: 10px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-muted);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .terminal-status-badge.running {
+      background: rgba(59, 130, 246, 0.15);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    .terminal-status-badge.success {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .terminal-status-badge.error {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    /* Button Loading Spinner */
+    .btn-spinner {
+      width: 13px;
+      height: 13px;
+      border: 2px solid rgba(255, 255, 255, 0.25);
+      border-top-color: currentColor;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Responsive hamburger menu */
+    .menu-toggle-btn {
+      display: none;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      color: var(--text-main);
+      padding: 6px 10px;
+      font-size: 16px;
+      cursor: pointer;
+      line-height: 1;
+    }
+
+    .menu-toggle-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    @media (max-width: 900px) {
+      .menu-toggle-btn {
+        display: block;
+      }
+      .sidebar {
+        position: fixed;
+        top: 71px;
+        left: 0;
+        bottom: 0;
+        z-index: 90;
+        background: var(--bg-secondary);
+        box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5);
+        transform: translateX(-100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .sidebar.open {
+        transform: translateX(0);
+      }
+      .dashboard-panel {
+        padding: 16px;
+        gap: 20px;
+      }
+      .action-row {
+        gap: 8px;
+        padding: 12px;
+      }
+    }
   </style>
 </head>
 
@@ -849,6 +1097,7 @@
 
   <header>
     <div class="logo-container">
+      <button class="menu-toggle-btn" id="menuToggleBtn" onclick="toggleSidebar()" aria-label="Toggle navigation">☰</button>
       <svg class="logo-img" viewBox="0 0 64 64" width="38" height="38" xmlns="http://www.w3.org/2000/svg">
         <rect width="64" height="64" rx="16" fill="#0b1329" stroke="#1e293b" stroke-width="1.5" />
         <g transform="translate(32, 33) scale(0.95)">
@@ -907,11 +1156,21 @@
 
     <!-- Sidebar: Host list -->
     <div class="sidebar">
+    <div class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <span class="sidebar-title">Environments</span>
         <button class="btn btn-primary" id="addHostBtn" onclick="openHostModal()">
           <span style="font-size: 16px; font-weight: bold;">+</span> Add Host
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="sidebar-title">Environments</span>
+          <span class="badge-count" id="hostCountBadge">0</span>
+        </div>
+        <button class="btn btn-primary" id="addHostBtn" onclick="openHostModal()" style="padding: 6px 12px; font-size: 12px;">
+          <span style="font-size: 14px; font-weight: bold;">+</span> Add Host
         </button>
+      </div>
+      <div class="sidebar-search-container">
+        <input type="text" id="hostSearchInput" class="sidebar-search-input" placeholder="🔍 Search environments..." oninput="filterHosts(this.value)">
       </div>
       <div class="host-list" id="hostList">
         <!-- Rendered Hosts -->
@@ -996,8 +1255,27 @@
               <div class="terminal-dot" style="background:#ef4444;"></div>
               <div class="terminal-dot" style="background:#f59e0b;"></div>
               <div class="terminal-dot" style="background:#10b981;"></div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <div class="terminal-dots">
+                <div class="terminal-dot" style="background:#ef4444;"></div>
+                <div class="terminal-dot" style="background:#f59e0b;"></div>
+                <div class="terminal-dot" style="background:#10b981;"></div>
+              </div>
+              <span id="terminalStatusBadge" class="terminal-status-badge">STANDBY</span>
+              <span id="terminalStatus" style="font-size: 11px; color: var(--text-muted);">Idle</span>
             </div>
             <div id="terminalStatus">TERMINAL: STANDBY</div>
+            <div class="terminal-header-controls">
+              <button class="term-btn" onclick="copyTerminalOutput()" title="Copy terminal output to clipboard">
+                📋 Copy
+              </button>
+              <button class="term-btn" onclick="clearTerminal()" title="Clear terminal output">
+                🧹 Clear
+              </button>
+              <button class="term-btn" id="termExpandBtn" onclick="toggleTerminalFullscreen()" title="Toggle expanded full view">
+                ⛶ Expand
+              </button>
+            </div>
           </div>
           <div id="terminal"></div>
         </div>
@@ -1172,6 +1450,7 @@
       <div class="modal-footer">
         <div style="font-size: 11px; color: var(--text-muted);" id="envSaveStatus">Standing by.</div>
         <div class="flex-end">
+          <button class="btn btn-secondary" onclick="copyEditorContent()" title="Copy entire file contents to clipboard">📋 Copy</button>
           <button class="btn btn-secondary" onclick="closeEnvModal()">Close</button>
           <button class="btn btn-primary" id="saveEnvBtn" onclick="submitEnvFile()">Save Config</button>
         </div>
@@ -1193,8 +1472,53 @@
           <div class="modal-footer" style="margin-top: 20px; display: flex; justify-content: flex-end;">
             <button class="btn btn-secondary" onclick="closeChangelogModal()">Close</button>
           </div>
+    </div>
+  </div>
+
+  <!-- Change Log Modal -->
+  <div class="modal-overlay" id="changelogModal">
+    <div class="modal-container" style="max-width: 620px; width: 90vw;">
+      <div class="modal-header">
+        <h3 class="modal-title" style="display: flex; align-items: center; gap: 8px;">
+          📜 Recent Commit Change Log
+        </h3>
+        <button class="close-btn" onclick="closeChangelogModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="changelogList"
+        style="max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
+        <div style="color: var(--text-muted);">Loading commit history...</div>
+      </div>
+      <div class="modal-footer">
+        <div></div>
+        <button class="btn btn-secondary" onclick="closeChangelogModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Confirmation Dialog Modal -->
+  <div class="modal-overlay" id="confirmModal">
+    <div class="modal-container" style="width: 440px; max-width: 90vw;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="confirmModalTitle" style="display: flex; align-items: center; gap: 8px;">
+          <span>⚠️</span> Confirm Action
+        </h3>
+        <button class="close-btn" onclick="closeConfirmModal(false)">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 20px;">
+        <p id="confirmModalMessage" style="font-size: 14px; line-height: 1.5; color: var(--text-main);">Are you sure you want to proceed?</p>
+      </div>
+      <div class="modal-footer">
+        <div></div>
+        <div class="flex-end">
+          <button class="btn btn-secondary" id="confirmCancelBtn" onclick="closeConfirmModal(false)">Cancel</button>
+          <button class="btn btn-danger" id="confirmOkBtn" onclick="closeConfirmModal(true)">Confirm</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
 
       <script>
         let hosts = [];
@@ -1202,6 +1526,166 @@
         let term = null;
         let fitAddon = null;
         let wsConn = null;
+        let hostSearchQuery = '';
+
+        // Toast Notification System
+        function showToast(message, type = 'info', title = '') {
+          const container = document.getElementById('toastContainer');
+          if (!container) return;
+
+          const toast = document.createElement('div');
+          toast.className = `toast toast-${type}`;
+
+          const icons = {
+            success: '✅',
+            error: '❌',
+            warning: '⚠️',
+            info: 'ℹ️'
+          };
+          const defaultTitles = {
+            success: 'Success',
+            error: 'Error',
+            warning: 'Warning',
+            info: 'Notice'
+          };
+
+          const toastIcon = icons[type] || 'ℹ️';
+          const toastTitle = title || defaultTitles[type] || 'Notice';
+
+          toast.innerHTML = `
+            <div class="toast-icon">${toastIcon}</div>
+            <div class="toast-body">
+              <div class="toast-title">${escapeHTML(toastTitle)}</div>
+              <div>${escapeHTML(message)}</div>
+            </div>
+            <button class="toast-close" onclick="this.parentElement.remove()">&times;</button>
+          `;
+
+          container.appendChild(toast);
+          requestAnimationFrame(() => {
+            toast.classList.add('show');
+          });
+
+          setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+          }, 4200);
+        }
+
+        // Custom Confirmation Dialog Helper (Returns a Promise)
+        let confirmResolve = null;
+        function showConfirm({ title = 'Confirm Action', message = 'Are you sure you want to proceed?', confirmText = 'Confirm', cancelText = 'Cancel', danger = true } = {}) {
+          return new Promise((resolve) => {
+            confirmResolve = resolve;
+            const modal = document.getElementById('confirmModal');
+            document.getElementById('confirmModalTitle').innerHTML = `<span>${danger ? '⚠️' : '❓'}</span> ${escapeHTML(title)}`;
+            document.getElementById('confirmModalMessage').textContent = message;
+            const okBtn = document.getElementById('confirmOkBtn');
+            okBtn.textContent = confirmText;
+            okBtn.className = danger ? 'btn btn-danger' : 'btn btn-primary';
+            document.getElementById('confirmCancelBtn').textContent = cancelText;
+
+            modal.classList.add('open');
+          });
+        }
+
+        function closeConfirmModal(result) {
+          const modal = document.getElementById('confirmModal');
+          modal.classList.remove('open');
+          if (confirmResolve) {
+            confirmResolve(result);
+            confirmResolve = null;
+          }
+        }
+
+        // Terminal Toolbar Functions
+        function clearTerminal() {
+          if (term) {
+            term.clear();
+            showToast('Terminal output cleared', 'info');
+          }
+        }
+
+        function copyTerminalOutput() {
+          if (!term) return;
+          let text = '';
+          const buffer = term.buffer.active;
+          for (let i = 0; i < buffer.length; i++) {
+            const line = buffer.getLine(i);
+            if (line) {
+              text += line.translateToString(true) + '\n';
+            }
+          }
+          text = text.trim();
+          if (!text) {
+            showToast('Terminal buffer is currently empty', 'warning');
+            return;
+          }
+          navigator.clipboard.writeText(text).then(() => {
+            showToast('Terminal output copied to clipboard', 'success');
+          }).catch(() => {
+            showToast('Failed to copy output to clipboard', 'error');
+          });
+        }
+
+        function toggleTerminalFullscreen() {
+          const termContainer = document.getElementById('terminalContainer');
+          const expandBtn = document.getElementById('termExpandBtn');
+          if (!termContainer) return;
+
+          const isFull = termContainer.classList.toggle('fullscreen');
+          if (expandBtn) {
+            expandBtn.textContent = isFull ? '🗗 Collapse' : '⛶ Expand';
+            expandBtn.title = isFull ? 'Exit expanded view' : 'Toggle expanded full view';
+          }
+          setTimeout(() => {
+            if (fitAddon) fitAddon.fit();
+          }, 60);
+        }
+
+        // Sidebar Search & Filter Helper
+        function filterHosts(query) {
+          hostSearchQuery = (query || '').toLowerCase().trim();
+          renderHostList();
+        }
+
+        // Mobile Drawer Toggle
+        function toggleSidebar() {
+          const sidebar = document.getElementById('sidebar');
+          if (sidebar) sidebar.classList.toggle('open');
+        }
+
+        // Editor Copy Helper
+        function copyEditorContent() {
+          const textarea = document.getElementById('envContents');
+          if (!textarea || !textarea.value) {
+            showToast('File buffer is empty', 'warning');
+            return;
+          }
+          navigator.clipboard.writeText(textarea.value).then(() => {
+            showToast('File buffer copied to clipboard', 'success');
+          }).catch(() => {
+            showToast('Failed to copy buffer', 'error');
+          });
+        }
+
+        // Global Keyboard Shortcuts
+        window.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
+            document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+            const termContainer = document.getElementById('terminalContainer');
+            if (termContainer && termContainer.classList.contains('fullscreen')) {
+              toggleTerminalFullscreen();
+            }
+          }
+          if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+            const envModal = document.getElementById('envModalOverlay');
+            if (envModal && envModal.classList.contains('open')) {
+              e.preventDefault();
+              submitEnvFile();
+            }
+          }
+        });
 
         // Custom select widgets helper functions
         function toggleCustomDropdown(dropdownId) {
@@ -1500,16 +1984,40 @@
           const container = document.getElementById('hostList');
           container.innerHTML = '';
 
+          const countBadge = document.getElementById('hostCountBadge');
+          if (countBadge) {
+            countBadge.textContent = hosts.length;
+          }
+
           if (hosts.length === 0) {
             container.innerHTML = '<div style="padding:24px; color:var(--text-muted); text-align:center; font-size:13px;">No accessible host environments.</div>';
             return;
           }
 
           hosts.forEach(host => {
+          const visibleHosts = hosts.filter(h => {
+            if (!hostSearchQuery) return true;
+            return (h.name && h.name.toLowerCase().includes(hostSearchQuery)) ||
+                   (h.projectDir && h.projectDir.toLowerCase().includes(hostSearchQuery)) ||
+                   (h.ip && h.ip.toLowerCase().includes(hostSearchQuery)) ||
+                   (h.branch && h.branch.toLowerCase().includes(hostSearchQuery));
+          });
+
+          if (visibleHosts.length === 0) {
+            container.innerHTML = '<div style="padding:24px; color:var(--text-muted); text-align:center; font-size:13px;">No environments matching filter.</div>';
+            return;
+          }
+
+          visibleHosts.forEach(host => {
             const item = document.createElement('div');
             item.className = `host-item ${selectedHost && selectedHost.id === host.id ? 'active' : ''}`;
             item.onclick = (e) => {
               selectHost(host);
+              // Auto-close sidebar on mobile after selecting a host
+              if (window.innerWidth <= 900) {
+                const sidebar = document.getElementById('sidebar');
+                if (sidebar) sidebar.classList.remove('open');
+              }
             };
 
             const isRemote = host.type === 'remote';
@@ -1642,6 +2150,7 @@
           const modal = document.getElementById('changelogModal');
           const list = document.getElementById('changelogList');
           modal.style.display = 'flex';
+          modal.classList.add('open');
 
           if (!activeChangelog || activeChangelog.length === 0) {
             list.innerHTML = `<div style="color: var(--text-muted); font-size: 13px;">No recent commit history available for this environment.</div>`;
@@ -1662,6 +2171,7 @@
 
         function closeChangelogModal() {
           document.getElementById('changelogModal').style.display = 'none';
+          document.getElementById('changelogModal').classList.remove('open');
         }
 
         // Select active environment
@@ -1739,6 +2249,12 @@
           if (!selectedHost) return;
           const termStatus = document.getElementById('terminalStatus');
           termStatus.textContent = 'PROBING ENVIRONMENT...';
+          const termBadge = document.getElementById('terminalStatusBadge');
+          if (termBadge) {
+            termBadge.className = 'terminal-status-badge running';
+            termBadge.textContent = 'PROBING';
+          }
+          if (termStatus) termStatus.textContent = 'Connecting...';
           term.write(`\r\nPinging Host connection: ${selectedHost.name}...\r\n`);
 
           await pingHostStatus(selectedHost.id);
@@ -1746,7 +2262,15 @@
 
           term.write(`Ping complete. Status refreshed in Sidebar.\r\n\r\n`);
           termStatus.textContent = 'TERMINAL: STANDBY';
+          if (termBadge) {
+            termBadge.className = 'terminal-status-badge';
+            termBadge.textContent = 'STANDBY';
+          }
+          if (termStatus) termStatus.textContent = 'Idle';
         }
+
+        let activeActionButton = null;
+        let originalButtonHtml = '';
 
         // Executed Action
         function runAction(action, containerName = '') {
@@ -1758,6 +2282,32 @@
 
           document.getElementById('terminalContainer').classList.add('active');
           document.getElementById('terminalStatus').textContent = `RUNNING: ${action.toUpperCase()}${containerName ? ' (' + containerName + ')' : ''}`;
+          const termBadge = document.getElementById('terminalStatusBadge');
+          const termStatus = document.getElementById('terminalStatus');
+          if (termBadge) {
+            termBadge.className = 'terminal-status-badge running';
+            termBadge.innerHTML = '<span class="btn-spinner"></span> STREAMING';
+          }
+          if (termStatus) {
+            termStatus.textContent = `${action.toUpperCase()}${containerName ? ' (' + containerName + ')' : ''}`;
+          }
+
+          const btnMap = {
+            'pull': 'gitPullBtn',
+            'redeploy': 'redeployBtn',
+            'redeploy-app': 'redeployAppBtn',
+            'start': 'startBtn',
+            'stop': 'stopBtn',
+            'logs': 'logsBtn'
+          };
+          const targetBtnId = btnMap[action];
+          if (targetBtnId) {
+            activeActionButton = document.getElementById(targetBtnId);
+            if (activeActionButton) {
+              originalButtonHtml = activeActionButton.innerHTML;
+              activeActionButton.innerHTML = `<span class="btn-spinner"></span> ${activeActionButton.textContent.trim()}`;
+            }
+          }
 
           toggleButtons(true);
 
@@ -1784,6 +2334,20 @@
           wsConn.onclose = (event) => {
             document.getElementById('terminalContainer').classList.remove('active');
             document.getElementById('terminalStatus').textContent = `FINISHED: ${action.toUpperCase()}`;
+            if (termBadge) {
+              termBadge.className = 'terminal-status-badge success';
+              termBadge.textContent = 'COMPLETED';
+            }
+            if (termStatus) {
+              termStatus.textContent = `Finished: ${action.toUpperCase()}`;
+            }
+
+            if (activeActionButton && originalButtonHtml) {
+              activeActionButton.innerHTML = originalButtonHtml;
+              activeActionButton = null;
+              originalButtonHtml = '';
+            }
+
             toggleButtons(false);
             wsConn = null;
             pingHostStatus(selectedHost.id);
@@ -1794,6 +2358,20 @@
             term.write(`\r\n\x1b[31mWebsocket error: Connection refused by server.\x1b[0m\r\n`);
             document.getElementById('terminalContainer').classList.remove('active');
             document.getElementById('terminalStatus').textContent = 'ERROR';
+            if (termBadge) {
+              termBadge.className = 'terminal-status-badge error';
+              termBadge.textContent = 'ERROR';
+            }
+            if (termStatus) {
+              termStatus.textContent = 'Failed';
+            }
+
+            if (activeActionButton && originalButtonHtml) {
+              activeActionButton.innerHTML = originalButtonHtml;
+              activeActionButton = null;
+              originalButtonHtml = '';
+            }
+
             toggleButtons(false);
           };
         }
@@ -1801,6 +2379,8 @@
         function toggleButtons(disabled) {
           document.getElementById('gitPullBtn').disabled = disabled;
           document.getElementById('redeployBtn').disabled = disabled;
+          const appBtn = document.getElementById('redeployAppBtn');
+          if (appBtn) appBtn.disabled = disabled;
           document.getElementById('startBtn').disabled = disabled;
           document.getElementById('stopBtn').disabled = disabled;
           document.getElementById('logsBtn').disabled = disabled;
@@ -1810,6 +2390,7 @@
         function openHostModal() {
           if (userRole !== 'admin') {
             alert('Permission denied. Admin role required.');
+            showToast('Permission denied. Admin role required.', 'error');
             return;
           }
 
@@ -1845,6 +2426,7 @@
         function editHost(id) {
           if (userRole !== 'admin') {
             alert('Permission denied. Admin role required.');
+            showToast('Permission denied. Admin role required.', 'error');
             return;
           }
 
@@ -1915,10 +2497,12 @@
 
           if (!name || projectDir === undefined) {
             alert('Name and project directory paths are required configurations.');
+            showToast('Name and project directory paths are required configurations.', 'warning');
             return;
           }
           if (type === 'remote' && (!ip || !user)) {
             alert('IP and User configurations are mandatory requirements for remote connections.');
+            showToast('IP and User configurations are mandatory requirements for remote connections.', 'warning');
             return;
           }
 
@@ -1970,16 +2554,19 @@
               await loadHosts();
 
               const savedData = await response.json();
+              showToast(id ? 'Environment configuration updated!' : 'New environment host created!', 'success');
               if (id && selectedHost && selectedHost.id === id) {
                 selectHost(savedData);
               }
             } else {
               const errData = await response.json();
               alert('Submission error: ' + errData.error);
+              showToast('Submission error: ' + (errData.error || 'Check input'), 'error');
             }
           } catch (err) {
             console.error('Error submitting host info:', err);
             alert('Failed to save. Check server output.');
+            showToast('Failed to save. Check server output.', 'error');
           }
         }
 
@@ -1991,6 +2578,14 @@
           if (!confirm('Are you absolutely certain you wish to delete this docker environment host?')) {
             return;
           }
+          const confirmed = await showConfirm({
+            title: 'Delete Environment Host',
+            message: 'Are you absolutely certain you wish to delete this docker environment host? This configuration cannot be recovered.',
+            confirmText: 'Delete Host',
+            danger: true
+          });
+
+          if (!confirmed) return;
 
           try {
             const response = await fetch(`/api/hosts/${id}`, {
@@ -2000,6 +2595,7 @@
 
             if (response.ok) {
               closeHostModal();
+              showToast('Environment successfully deleted.', 'success');
               if (selectedHost && selectedHost.id === id) {
                 selectedHost = null;
                 document.getElementById('contentPanel').style.display = 'none';
@@ -2009,10 +2605,12 @@
             } else {
               const errData = await response.json();
               alert('Failed to delete: ' + errData.error);
+              showToast('Failed to delete: ' + errData.error, 'error');
             }
           } catch (err) {
             console.error('Error deleting environment:', err);
             alert('Server query failure. Check console.');
+            showToast('Server query failure. Check console.', 'error');
           }
         }
 
@@ -2056,6 +2654,7 @@
             if (!response.ok) {
               const err = await response.json();
               alert('Failed to access: ' + err.error);
+              showToast('Failed to access: ' + err.error, 'error');
               overlay.classList.remove('open');
               return;
             }
@@ -2075,6 +2674,7 @@
               saveBtn.disabled = false;
               textarea.readOnly = false;
               status.textContent = 'File editable. Modify contents and click save.';
+              status.textContent = 'File editable. Press Ctrl+S to save changes.';
             } else {
               badge.textContent = 'Read-Only';
               badge.className = 'host-badge perm-admin'; // red
@@ -2085,6 +2685,7 @@
           } catch (err) {
             console.error('Failed fetching file payload:', err);
             alert('Networking error loading file. Verify server log.');
+            showToast('Networking error loading file. Verify server log.', 'error');
             overlay.classList.remove('open');
           }
         }
@@ -2123,16 +2724,19 @@
             if (response.ok) {
               status.textContent = 'Changes saved successfully.';
               alert('Success: file updated.');
+              showToast('File updated successfully.', 'success');
               closeEnvModal();
             } else {
               const err = await response.json();
               status.textContent = 'Error: ' + err.error;
               alert('Update failed: ' + err.error);
+              showToast('Update failed: ' + err.error, 'error');
             }
           } catch (err) {
             console.error('Failed to submit write request:', err);
             status.textContent = 'Network write failed.';
             alert('Network interface failure. Verify backend connection.');
+            showToast('Network interface failure. Verify backend connection.', 'error');
           } finally {
             textarea.disabled = false;
             saveBtn.disabled = false;
@@ -2159,6 +2763,16 @@
 
             if (!list || list.length === 0) {
               containerList.innerHTML = '<div style="grid-column: 1/-1; color: var(--text-muted); font-size:13px; padding: 12px 0;">No active compose container processes running in this environment. Run redeploy to build/start processes.</div>';
+              containerList.innerHTML = `
+                <div style="grid-column: 1/-1; color: var(--text-muted); font-size:13px; padding: 20px; background: rgba(255, 255, 255, 0.02); border: 1px dashed var(--border-color); border-radius: 8px; text-align: center;">
+                  <div style="font-size: 28px; margin-bottom: 8px;">📦</div>
+                  <div style="font-weight: 600; color: var(--text-main); margin-bottom: 4px;">No active containers detected</div>
+                  <div style="font-size: 12px; margin-bottom: 12px;">Trigger a stack build and startup using the deploy action.</div>
+                  <button class="btn btn-primary" style="margin: 0 auto; padding: 6px 14px; font-size: 12px;" onclick="runAction('redeploy')">
+                    🚀 Redeploy Environment
+                  </button>
+                </div>
+              `;
               return;
             }
 
@@ -2183,6 +2797,8 @@
                   linkButtonsHtml += `
                 <a href="${link.url}" target="_blank" class="btn btn-secondary font-btn" style="padding: 4px 8px; font-size:11px; margin-top:2px; display:inline-flex; align-items:center; gap:4px; text-decoration:none; color:var(--accent-color); width:fit-content;">
                   🔗 Open App (Port ${link.port})
+                <a href="${link.url}" target="_blank" class="btn btn-secondary font-btn" style="padding: 4px 8px; font-size:11px; display:inline-flex; align-items:center; gap:4px; text-decoration:none; color:var(--accent-color); width:fit-content;">
+                  🔗 Port ${link.port}
                 </a>
               `;
                 });
@@ -2193,6 +2809,8 @@
                 logsButtonHtml = `
               <button class="btn btn-secondary font-btn" style="padding: 4px 8px; font-size:11px; margin-top:2px; display:inline-flex; align-items:center; gap:4px;" onclick="runAction('container-logs', '${escapeHTML(service)}')">
                 📄 View Logs
+              <button class="btn btn-secondary font-btn" style="padding: 4px 8px; font-size:11px; display:inline-flex; align-items:center; gap:4px;" onclick="runAction('container-logs', '${escapeHTML(service)}')">
+                📄 Logs
               </button>
             `;
               }
@@ -2201,10 +2819,16 @@
             <div class="container-card-header">
               <span class="container-card-title" title="${escapeHTML(name)}">${escapeHTML(name)}</span>
               <span class="container-status-badge ${badgeClass}">${stateLabel}</span>
+              <span class="host-badge ${isRunning ? 'perm-user' : 'perm-admin'}" style="font-size: 10px; display: inline-flex; align-items: center; gap: 5px;">
+                <span class="status-dot ${isRunning ? 'online' : 'offline'}" style="width: 6px; height: 6px;"></span>
+                ${stateLabel}
+              </span>
             </div>
             <div class="container-card-meta">
               <div>Service: <span>${escapeHTML(service)}</span></div>
               ${ports ? `<div>Exposed Details: <span style="font-family: inherit; font-size:11px;">${escapeHTML(ports)}</span></div>` : ''}
+              <div>Service: <span style="font-family: 'Fira Code', monospace; color: var(--accent-color);">${escapeHTML(service)}</span></div>
+              ${ports ? `<div>Exposed Details: <span style="font-family: 'Fira Code', monospace; font-size: 11px; color: var(--text-muted);">${escapeHTML(ports)}</span></div>` : ''}
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:4px;">
               ${linkButtonsHtml}
