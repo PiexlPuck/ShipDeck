@@ -2512,11 +2512,6 @@
 
           wsConn.onclose = (event) => {
             document.getElementById('terminalContainer').classList.remove('active');
-            document.getElementById('terminalStatus').textContent = `FINISHED: ${action.toUpperCase()}`;
-            if (termBadge) {
-              termBadge.className = 'terminal-status-badge success';
-              termBadge.textContent = 'COMPLETED';
-
             const isFailed = (lastActionExitCode !== null && lastActionExitCode !== 0) || (lastActionExitCode === null && lastActionErrorDetected);
 
             if (isFailed) {
