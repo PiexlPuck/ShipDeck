@@ -295,6 +295,18 @@
       color: #93c5fd;
     }
 
+    @keyframes pulseGlow {
+      0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+      70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+
+    .btn-force-highlight {
+      animation: pulseGlow 1.8s infinite;
+      border: 1px solid #ef4444 !important;
+      font-weight: 600;
+    }
+
     .host-list {
       padding: 16px;
       display: flex;
@@ -1269,6 +1281,10 @@
           <button class="btn btn-secondary" id="manageComposeBtn" onclick="viewComposeFile()" style="display: none;">
             🐳 Manage Compose
           </button>
+          <!-- Force Action Button (Visible ONLY when an action fails) -->
+          <button class="btn btn-danger btn-force-highlight" id="forceActionBtn" onclick="runForceAction()" style="display: none;" title="Force execution of failed action">
+            ⚡ Force Action
+          </button>
         </div>
 
         <!-- Deployed Containers List Panel Section -->
@@ -1293,6 +1309,10 @@
               <span id="terminalStatus" style="font-size: 11px; color: var(--text-muted);">Idle</span>
             </div>
             <div class="terminal-header-controls">
+              <!-- Terminal Force Button (Visible ONLY when an action fails) -->
+              <button class="term-btn btn-force-highlight" id="termForceBtn" onclick="runForceAction()" style="display: none; background: rgba(239, 68, 68, 0.25); color: #fca5a5;" title="Force execution of failed action">
+                ⚡ Force Action
+              </button>
               <button class="term-btn" onclick="copyTerminalOutput()" title="Copy terminal output to clipboard">
                 📋 Copy
               </button>
@@ -2239,6 +2259,7 @@
         function selectHost(host) {
           selectedHost = host;
           activeChangelog = [];
+          hideForceButtons();
           renderHostList();
 
           document.getElementById('emptyState').style.display = 'none';
@@ -2337,9 +2358,84 @@
         let activeActionButton = null;
         let originalButtonHtml = '';
 
+        // Force action state management (Visible ONLY when an action fails)
+        let failedActionType = null;
+        let lastActionExitCode = null;
+        let lastActionErrorDetected = false;
+
+        function hideForceButtons() {
+          const forceBtn = document.getElementById('forceActionBtn');
+          const termForceBtn = document.getElementById('termForceBtn');
+          if (forceBtn) forceBtn.style.display = 'none';
+          if (termForceBtn) termForceBtn.style.display = 'none';
+          failedActionType = null;
+        }
+
+        function showForceButtons(action) {
+          const forceBtn = document.getElementById('forceActionBtn');
+          const termForceBtn = document.getElementById('termForceBtn');
+          failedActionType = action;
+
+          let forceLabel = '⚡ Force Action';
+          let forceTitle = 'Force execution of failed action';
+
+          if (action === 'pull' || action === 'force-pull') {
+            forceLabel = '⚡ Force Git Pull';
+            forceTitle = 'Discard local conflicting changes and force pull latest remote branch';
+          } else if (action.includes('redeploy')) {
+            forceLabel = '⚡ Force Redeploy';
+            forceTitle = 'Purge orphans and rebuild all images without cache (--no-cache --force-recreate)';
+          } else if (action === 'start') {
+            forceLabel = '⚡ Force Start';
+            forceTitle = 'Recreate and force start containers';
+          }
+
+          if (forceBtn) {
+            forceBtn.textContent = forceLabel;
+            forceBtn.title = forceTitle;
+            forceBtn.style.display = 'inline-flex';
+          }
+          if (termForceBtn) {
+            termForceBtn.textContent = forceLabel;
+            termForceBtn.title = forceTitle;
+            termForceBtn.style.display = 'inline-flex';
+          }
+        }
+
+        async function runForceAction() {
+          if (!selectedHost || !failedActionType) return;
+
+          if (failedActionType === 'pull' || failedActionType === 'force-pull') {
+            const targetBranch = selectedHost.branch || 'main';
+            const confirmed = await showConfirm({
+              title: 'Force Git Pull',
+              message: `Force Pull will discard all local uncommitted/conflicting changes in "${selectedHost.name}" and cleanly reset the repository to origin/${targetBranch}. Are you sure?`,
+              confirmText: '⚡ Force Git Pull',
+              danger: true
+            });
+            if (!confirmed) return;
+            runAction('force-pull');
+          } else if (failedActionType.includes('redeploy')) {
+            const confirmed = await showConfirm({
+              title: 'Force Redeploy',
+              message: `Force Redeploy will stop running containers, purge orphan containers, and completely rebuild images without cache (--no-cache --force-recreate). Are you sure?`,
+              confirmText: '⚡ Force Redeploy',
+              danger: true
+            });
+            if (!confirmed) return;
+            runAction('force-redeploy');
+          } else {
+            runAction('force-' + failedActionType);
+          }
+        }
+
         // Executed Action
         function runAction(action, containerName = '') {
           if (!selectedHost) return;
+
+          hideForceButtons();
+          lastActionExitCode = null;
+          lastActionErrorDetected = false;
 
           if (wsConn) {
             wsConn.close();
@@ -2359,7 +2455,9 @@
 
           const btnMap = {
             'pull': 'gitPullBtn',
+            'force-pull': 'forceActionBtn',
             'redeploy': 'redeployBtn',
+            'force-redeploy': 'forceActionBtn',
             'redeploy-app': 'redeployAppBtn',
             'start': 'startBtn',
             'stop': 'stopBtn',
@@ -2394,6 +2492,22 @@
 
           wsConn.onmessage = (event) => {
             term.write(event.data);
+            const raw = event.data;
+            try {
+              if (raw.startsWith('{') && raw.includes('__shipdeck_event')) {
+                const parsed = JSON.parse(raw);
+                if (parsed.__shipdeck_event === 'exit') {
+                  lastActionExitCode = parsed.code;
+                  return;
+                }
+              }
+            } catch (e) { }
+
+            if (raw.includes('fatal:') || raw.includes('Command failed') || raw.includes('Process error:')) {
+              lastActionErrorDetected = true;
+            }
+
+            term.write(raw);
           };
 
           wsConn.onclose = (event) => {
@@ -2402,6 +2516,31 @@
             if (termBadge) {
               termBadge.className = 'terminal-status-badge success';
               termBadge.textContent = 'COMPLETED';
+
+            const isFailed = (lastActionExitCode !== null && lastActionExitCode !== 0) || (lastActionExitCode === null && lastActionErrorDetected);
+
+            if (isFailed) {
+              const exitText = lastActionExitCode !== null ? ` (Exit Code ${lastActionExitCode})` : '';
+              document.getElementById('terminalStatus').textContent = `FAILED: ${action.toUpperCase()}${exitText}`;
+              if (termBadge) {
+                termBadge.className = 'terminal-status-badge error';
+                termBadge.textContent = 'FAILED';
+              }
+              if (termStatus) {
+                termStatus.textContent = `Failed: ${action.toUpperCase()}${exitText}`;
+              }
+              showForceButtons(action);
+              showToast(`Action '${action.toUpperCase()}' failed. A Force option is now available.`, 'warning');
+            } else {
+              document.getElementById('terminalStatus').textContent = `FINISHED: ${action.toUpperCase()}`;
+              if (termBadge) {
+                termBadge.className = 'terminal-status-badge success';
+                termBadge.textContent = 'COMPLETED';
+              }
+              if (termStatus) {
+                termStatus.textContent = `Finished: ${action.toUpperCase()}`;
+              }
+              hideForceButtons();
             }
             if (termStatus) {
               termStatus.textContent = `Finished: ${action.toUpperCase()}`;
@@ -2430,6 +2569,7 @@
             if (termStatus) {
               termStatus.textContent = 'Failed';
             }
+            showForceButtons(action);
 
             if (activeActionButton && originalButtonHtml) {
               activeActionButton.innerHTML = originalButtonHtml;
@@ -2449,6 +2589,10 @@
           document.getElementById('startBtn').disabled = disabled;
           document.getElementById('stopBtn').disabled = disabled;
           document.getElementById('logsBtn').disabled = disabled;
+          const forceBtn = document.getElementById('forceActionBtn');
+          if (forceBtn) forceBtn.disabled = disabled;
+          const termForceBtn = document.getElementById('termForceBtn');
+          if (termForceBtn) termForceBtn.disabled = disabled;
         }
 
         // Modal Control Box

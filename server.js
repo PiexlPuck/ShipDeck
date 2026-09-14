@@ -1458,7 +1458,9 @@ wss.on('connection', (ws, request) => {
   // Determine commands to execute based on host action
   let commandStr = '';
   if (action === 'pull') {
+  if (action === 'pull' || action === 'force-pull') {
     const targetBranch = host.branch || 'main';
+    const isForce = (action === 'force-pull');
     if (host.type === 'local') {
       const gitDir = path.join(host.projectDir, '.git');
       const isCloneRequired = host.gitUrl && !fs.existsSync(gitDir);
@@ -1466,14 +1468,32 @@ wss.on('connection', (ws, request) => {
       commandStr = isCloneRequired
         ? `git clone -b "${targetBranch}" "${gitUrlFormatted}" .`
         : `git remote set-url origin "${gitUrlFormatted}" 2>/dev/null; git fetch origin && (git checkout "${targetBranch}" || git checkout -b "${targetBranch}" "origin/${targetBranch}") && git pull origin "${targetBranch}"`;
+      if (isCloneRequired) {
+        commandStr = `git clone -b "${targetBranch}" "${gitUrlFormatted}" .`;
+      } else if (isForce) {
+        commandStr = `git remote set-url origin "${gitUrlFormatted}" 2>/dev/null; git fetch origin "${targetBranch}" && git checkout -B "${targetBranch}" "origin/${targetBranch}" && git reset --hard "origin/${targetBranch}" && git clean -fd`;
+      } else {
+        commandStr = `git remote set-url origin "${gitUrlFormatted}" 2>/dev/null; git fetch origin && (git checkout "${targetBranch}" || git checkout -b "${targetBranch}" "origin/${targetBranch}") && git pull origin "${targetBranch}"`;
+      }
       if (!fs.existsSync(host.projectDir)) {
         fs.mkdirSync(host.projectDir, { recursive: true });
       }
     } else {
       commandStr = `git fetch origin 2>/dev/null; (git checkout "${targetBranch}" || git checkout -b "${targetBranch}" "origin/${targetBranch}") 2>/dev/null; git pull origin "${targetBranch}"`;
+      if (isForce) {
+        commandStr = `git fetch origin "${targetBranch}" 2>/dev/null; git checkout -B "${targetBranch}" "origin/${targetBranch}" 2>/dev/null; git reset --hard "origin/${targetBranch}" 2>/dev/null; git clean -fd 2>/dev/null`;
+      } else {
+        commandStr = `git fetch origin 2>/dev/null; (git checkout "${targetBranch}" || git checkout -b "${targetBranch}" "origin/${targetBranch}") 2>/dev/null; git pull origin "${targetBranch}"`;
+      }
     }
   } else if (action === 'redeploy') {
     commandStr = 'docker compose up -d --build';
+  } else if (action === 'redeploy' || action === 'force-redeploy') {
+    if (action === 'force-redeploy') {
+      commandStr = 'docker compose down --remove-orphans 2>/dev/null || docker-compose down --remove-orphans 2>/dev/null; (docker compose build --no-cache || docker-compose build --no-cache) && (docker compose up -d --force-recreate || docker-compose up -d --force-recreate)';
+    } else {
+      commandStr = 'docker compose up -d --build || docker-compose up -d --build';
+    }
   } else if (action === 'redeploy-app') {
     // --no-deps rebuilds and starts app containers without restarting/recreating linked DB dependencies
     commandStr = 'docker compose up -d --build --no-deps || docker-compose up -d --build --no-deps';
@@ -1520,6 +1540,18 @@ wss.on('connection', (ws, request) => {
     p.on('close', (code) => {
       emitLog(`\r\n\x1b[32m=== Command completed with exit code ${code} ===\x1b[0m\r\n`);
       ws.close();
+      const exitCode = typeof code === 'number' ? code : 1;
+      if (exitCode === 0) {
+        emitLog(`\r\n\x1b[32m=== Command completed successfully (exit code 0) ===\x1b[0m\r\n`);
+      } else {
+        emitLog(`\r\n\x1b[31m=== Command failed with exit code ${exitCode} ===\x1b[0m\r\n`);
+      }
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ __shipdeck_event: 'exit', code: exitCode, action }));
+      }
+      setTimeout(() => {
+        if (ws.readyState === WebSocket.OPEN) ws.close();
+      }, 150);
     });
 
     ws.on('close', () => {
@@ -1539,8 +1571,15 @@ wss.on('connection', (ws, request) => {
       emitLog(`\x1b[32mSSH Connection established. Spawning session...\x1b[0m\r\n`);
       let fullRemoteCommand = '';
       if (action === 'pull' && host.gitUrl) {
+      if ((action === 'pull' || action === 'force-pull') && host.gitUrl) {
         const gitUrlFormatted = formatGitUrl(host.gitUrl);
         fullRemoteCommand = `mkdir -p "${host.projectDir}" && cd "${host.projectDir}" && ( [ -d .git ] && ( git remote set-url origin "${gitUrlFormatted}" 2>/dev/null; git checkout "${host.branch || 'main'}" && git pull ) || git clone -b "${host.branch || 'main'}" "${gitUrlFormatted}" . )`;
+        const branch = host.branch || 'main';
+        if (action === 'force-pull') {
+          fullRemoteCommand = `mkdir -p "${host.projectDir}" && cd "${host.projectDir}" && ( [ -d .git ] && ( git remote set-url origin "${gitUrlFormatted}" 2>/dev/null; git fetch origin "${branch}" && git checkout -B "${branch}" "origin/${branch}" && git reset --hard "origin/${branch}" && git clean -fd ) || git clone -b "${branch}" "${gitUrlFormatted}" . )`;
+        } else {
+          fullRemoteCommand = `mkdir -p "${host.projectDir}" && cd "${host.projectDir}" && ( [ -d .git ] && ( git remote set-url origin "${gitUrlFormatted}" 2>/dev/null; git checkout "${branch}" && git pull ) || git clone -b "${branch}" "${gitUrlFormatted}" . )`;
+        }
       } else {
         fullRemoteCommand = `mkdir -p "${host.projectDir}" && cd "${host.projectDir}" && ${commandStr}`;
       }
@@ -1558,8 +1597,20 @@ wss.on('connection', (ws, request) => {
 
         stream.on('close', (code, signal) => {
           emitLog(`\r\n\x1b[32m=== Command completed. Code: ${code}, Signal: ${signal || 'none'} ===\x1b[0m\r\n`);
+          const exitCode = typeof code === 'number' ? code : (signal ? 1 : 0);
+          if (exitCode === 0) {
+            emitLog(`\r\n\x1b[32m=== Command completed successfully (exit code 0) ===\x1b[0m\r\n`);
+          } else {
+            emitLog(`\r\n\x1b[31m=== Command failed. Code: ${exitCode}, Signal: ${signal || 'none'} ===\x1b[0m\r\n`);
+          }
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ __shipdeck_event: 'exit', code: exitCode, action }));
+          }
           conn.end();
           ws.close();
+          setTimeout(() => {
+            if (ws.readyState === WebSocket.OPEN) ws.close();
+          }, 150);
         });
       });
     });
