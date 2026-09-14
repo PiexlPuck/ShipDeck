@@ -179,6 +179,124 @@ function saveHosts(hosts) {
   }
 }
 
+// Check if a docker container belongs to a specific host environment
+function isContainerForHost(item, host) {
+  if (!host) return false;
+
+  const hostName = (host.name || '').trim().toLowerCase();
+  const rawDir = (host.projectDir || '').trim();
+  const dirBase = rawDir ? path.basename(rawDir.replace(/[\\/]+$/, '')).toLowerCase() : '';
+
+  // Only global engine hosts that explicitly indicate they manage the full engine should see all containers
+  const isGlobalEngine = (hostName.includes('engine') || hostName.includes('all containers') || hostName.includes('global')) &&
+    (!rawDir || rawDir === '/app' || rawDir === '/' || rawDir === '.');
+
+  if (isGlobalEngine) {
+    return true;
+  }
+
+  // Collect identification tokens for this host
+  const candidateKeys = new Set();
+  if (dirBase && !['app', 'root', 'home', 'var', 'tmp', '.', ''].includes(dirBase)) {
+    candidateKeys.add(dirBase);
+    candidateKeys.add(dirBase.replace(/[^a-z0-9]/g, ''));
+  }
+  if (hostName && !['local', 'server', 'docker', 'host', ''].includes(hostName)) {
+    candidateKeys.add(hostName);
+    candidateKeys.add(hostName.replace(/[^a-z0-9]/g, ''));
+  }
+
+  // Remove empty keys
+  candidateKeys.delete('');
+
+  if (candidateKeys.size === 0) {
+    return false;
+  }
+
+  // Check compose labels
+  let composeProject = '';
+  let composeWorkDir = '';
+  if (item.Labels) {
+    if (typeof item.Labels === 'string') {
+      const projMatch = item.Labels.match(/com\.docker\.compose\.project=([^,]+)/);
+      if (projMatch) composeProject = projMatch[1].toLowerCase().trim();
+      const dirMatch = item.Labels.match(/com\.docker\.compose\.project\.working_dir=([^,]+)/);
+      if (dirMatch) composeWorkDir = dirMatch[1].toLowerCase().trim();
+    } else if (typeof item.Labels === 'object') {
+      composeProject = (item.Labels['com.docker.compose.project'] || '').toLowerCase().trim();
+      composeWorkDir = (item.Labels['com.docker.compose.project.working_dir'] || '').toLowerCase().trim();
+    }
+  }
+
+  // 1. Check working directory exact match
+  if (composeWorkDir && rawDir) {
+    const normHostDir = rawDir.toLowerCase().replace(/\\/g, '/').replace(/\/+$/, '');
+    const normComposeDir = composeWorkDir.replace(/\\/g, '/').replace(/\/+$/, '');
+    if (normHostDir === normComposeDir) {
+      return true;
+    }
+  }
+
+  const rawNames = (item.Names || item.Name || '').split(',').map(n => n.replace(/^\//, '').toLowerCase().trim());
+
+  // 2. Check candidate keys against compose project or container name
+  for (const key of candidateKeys) {
+    if (!key) continue;
+
+    if (composeProject) {
+      const cleanProj = composeProject.replace(/[^a-z0-9]/g, '');
+      if (composeProject === key || cleanProj === key) {
+        return true;
+      }
+    }
+
+    for (const name of rawNames) {
+      if (!name) continue;
+      if (name === key) return true;
+      if (name.startsWith(key + '-') || name.startsWith(key + '_') || name.startsWith(key + '.')) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+// Parse docker ps -a --format "{{json .}}" output, filtered by host if provided
+function parseDockerPsOutput(stdout, host = null) {
+  const lines = (stdout || '').trim().split('\n').map(l => l.trim()).filter(Boolean);
+  const results = [];
+  for (const line of lines) {
+    try {
+      const item = JSON.parse(line);
+      if (host && !isContainerForHost(item, host)) {
+        continue;
+      }
+      let service = item.Names || item.ID || 'container';
+      if (item.Labels) {
+        if (typeof item.Labels === 'string') {
+          const match = item.Labels.match(/com\.docker\.compose\.service=([^,]+)/);
+          if (match && match[1]) {
+            service = match[1];
+          }
+        } else if (typeof item.Labels === 'object' && item.Labels['com.docker.compose.service']) {
+          service = item.Labels['com.docker.compose.service'];
+        }
+      }
+      const rawName = (item.Names || item.Name || item.ID || 'container').split(',')[0].replace(/^\//, '').trim();
+      results.push({
+        Name: rawName,
+        Service: service,
+        State: item.State || item.Status || '',
+        Status: item.Status || item.State || '',
+        Ports: item.Ports || ''
+      });
+    } catch (e) { }
+  }
+  return results;
+}
+
+
 // Extract User Identity & Role from headers
 function extractUserFromHeaders(headers, isHeaderAuthEnforced) {
   // Support standard Authelia/Keycloak headers
@@ -393,8 +511,12 @@ app.get('/api/hosts/:id/ping', authMiddleware, (req, res) => {
             running = arr.filter(c => ((c.State || c.Status || '').toLowerCase().includes('running') || (c.State || c.Status || '').toLowerCase().includes('up'))).length;
           } catch (e) { }
         } else if (!line.toLowerCase().startsWith('name') && !line.toLowerCase().startsWith('container')) {
+          const lower = line.toLowerCase();
+          if (lower.startsWith('warn') || lower.startsWith('error') || lower.includes('no configuration file') || lower.includes('not found') || lower.includes('failed')) {
+            return;
+          }
           total++;
-          if (line.toLowerCase().includes('up') || line.toLowerCase().includes('running')) {
+          if (lower.includes('up') || lower.includes('running')) {
             running++;
           }
         }
@@ -415,6 +537,16 @@ app.get('/api/hosts/:id/ping', authMiddleware, (req, res) => {
   };
 
   if (host.type === 'local') {
+    if (!fs.existsSync(host.projectDir)) {
+      return res.json({
+        status: 'Offline',
+        message: 'Project directory does not exist. Click Git Pull to deploy.',
+        version: 'Directory Missing',
+        containersCount: 0,
+        containersRunning: 0
+      });
+    }
+
     const gitDir = path.join(host.projectDir || '.', '.git');
     const finishPing = (finalResult) => {
       if (fs.existsSync(gitDir)) {
@@ -422,7 +554,7 @@ app.get('/api/hosts/:id/ping', authMiddleware, (req, res) => {
           const version = gitErr ? 'No Version Data' : stdout.trim();
           res.json({
             status: finalResult.status,
-            message: `Local host (${finalResult.running}/${finalResult.total} containers running)`,
+            message: `${host.name} (${finalResult.running}/${finalResult.total} containers running)`,
             version,
             containersCount: finalResult.total,
             containersRunning: finalResult.running
@@ -431,42 +563,33 @@ app.get('/api/hosts/:id/ping', authMiddleware, (req, res) => {
       } else {
         res.json({
           status: finalResult.status,
-          message: `Local Docker Engine (${finalResult.running}/${finalResult.total} containers running)`,
-          version: 'Local Docker Engine',
+          message: `${host.name} (${finalResult.running}/${finalResult.total} containers running)`,
+          version: 'No Git Repository',
           containersCount: finalResult.total,
           containersRunning: finalResult.running
         });
       }
     };
 
-    if (fs.existsSync(host.projectDir)) {
-      exec('docker compose ps --format json 2>/dev/null || docker compose ps 2>/dev/null', { cwd: host.projectDir }, (dockErr, dockStdout) => {
-        evaluateContainers(dockStdout, (cResult) => {
-          if (cResult.total > 0) {
-            return finishPing(cResult);
+    exec('docker compose ps --format json 2>/dev/null || docker compose ps 2>/dev/null', { cwd: host.projectDir }, (dockErr, dockStdout) => {
+      evaluateContainers(dockStdout, (cResult) => {
+        if (cResult.total > 0) {
+          return finishPing(cResult);
+        }
+        // If compose has 0, check if any containers match this specific host
+        exec('docker ps -a --format "{{json .}}" 2>/dev/null', (psErr, psStdout) => {
+          if (!psErr && psStdout && psStdout.trim()) {
+            const matching = parseDockerPsOutput(psStdout, host);
+            const rCount = matching.filter(c => (c.State || c.Status || '').toLowerCase().includes('running') || (c.State || c.Status || '').toLowerCase().includes('up')).length;
+            const tCount = matching.length;
+            const status = tCount === 0 ? 'Online' : (rCount === tCount ? 'Online' : (rCount === 0 ? 'Offline' : 'Degraded'));
+            finishPing({ status, running: rCount, total: tCount });
+          } else {
+            finishPing(cResult);
           }
-          exec('docker ps -a --format "{{json .}}" 2>/dev/null', (psErr, psStdout) => {
-            if (!psErr && psStdout && psStdout.trim()) {
-              evaluateContainers(psStdout, (psResult) => {
-                finishPing(psResult);
-              });
-            } else {
-              finishPing(cResult);
-            }
-          });
         });
       });
-    } else {
-      exec('docker ps -a --format "{{json .}}" 2>/dev/null', (psErr, psStdout) => {
-        if (!psErr && psStdout && psStdout.trim()) {
-          evaluateContainers(psStdout, (psResult) => {
-            finishPing(psResult);
-          });
-        } else {
-          res.json({ status: 'Offline', message: 'Local directory path does not exist on dashboard server.', version: 'Unknown', containersCount: 0, containersRunning: 0 });
-        }
-      });
-    }
+    });
   } else {
     const conn = new Client();
     let connError = null;
@@ -635,56 +758,31 @@ app.get('/api/hosts/:id/containers', authMiddleware, (req, res) => {
     }
   };
 
-  const parseDockerPsOutput = (stdout) => {
-    const lines = (stdout || '').trim().split('\n').map(l => l.trim()).filter(Boolean);
-    const results = [];
-    for (const line of lines) {
-      try {
-        const item = JSON.parse(line);
-        let service = item.Names || item.ID || 'container';
-        if (item.Labels) {
-          const match = item.Labels.match(/com\.docker\.compose\.service=([^,]+)/);
-          if (match && match[1]) {
-            service = match[1];
-          }
-        }
-        results.push({
-          Name: item.Names || item.ID || 'container',
-          Service: service,
-          State: item.State || item.Status || '',
-          Status: item.Status || item.State || '',
-          Ports: item.Ports || ''
-        });
-      } catch (e) { }
-    }
-    return results;
-  };
-
   if (host.type === 'local') {
+    if (!fs.existsSync(host.projectDir)) {
+      return res.json([]);
+    }
+
     const fallbackToDockerPs = () => {
       exec('docker ps -a --format "{{json .}}" 2>/dev/null', (psErr, psStdout) => {
         if (psErr || !psStdout || !psStdout.trim()) return res.json([]);
-        return res.json(parseDockerPsOutput(psStdout));
+        return res.json(parseDockerPsOutput(psStdout, host));
       });
     };
 
-    if (fs.existsSync(host.projectDir)) {
-      exec('docker compose ps --format json 2>/dev/null || docker-compose ps --format json 2>/dev/null', { cwd: host.projectDir }, (err, stdout) => {
-        if (!err && stdout.trim()) {
-          const parsed = parseOutput(stdout);
-          if (parsed && parsed.length > 0) return res.json(parsed);
+    exec('docker compose ps --format json 2>/dev/null || docker-compose ps --format json 2>/dev/null', { cwd: host.projectDir }, (err, stdout) => {
+      if (!err && stdout.trim()) {
+        const parsed = parseOutput(stdout);
+        if (parsed && parsed.length > 0) return res.json(parsed);
+      }
+      exec('docker compose ps 2>/dev/null || docker-compose ps 2>/dev/null', { cwd: host.projectDir }, (plainErr, plainStdout) => {
+        if (!plainErr && plainStdout.trim()) {
+          const parsedPlain = parseOutput(plainStdout);
+          if (parsedPlain && parsedPlain.length > 0) return res.json(parsedPlain);
         }
-        exec('docker compose ps 2>/dev/null || docker-compose ps 2>/dev/null', { cwd: host.projectDir }, (plainErr, plainStdout) => {
-          if (!plainErr && plainStdout.trim()) {
-            const parsedPlain = parseOutput(plainStdout);
-            if (parsedPlain && parsedPlain.length > 0) return res.json(parsedPlain);
-          }
-          fallbackToDockerPs();
-        });
+        fallbackToDockerPs();
       });
-    } else {
-      fallbackToDockerPs();
-    }
+    });
   } else {
     const conn = new Client();
     conn.on('ready', () => {
@@ -712,7 +810,7 @@ app.get('/api/hosts/:id/containers', authMiddleware, (req, res) => {
               psOutput += psData;
             }).on('close', () => {
               conn.end();
-              res.json(parseDockerPsOutput(psOutput));
+              res.json(parseDockerPsOutput(psOutput, host));
             });
           });
         });
