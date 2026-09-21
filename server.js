@@ -144,7 +144,8 @@ function getDefaultHost() {
     user: '',
     sshKeyPath: '',
     projectDir: defaultDir,
-    allowedRole: 'user'
+    allowedRole: 'user',
+    autoPrune: { enabled: false, mode: 'after-redeploy', lastRun: null }
   };
 }
 
@@ -417,7 +418,8 @@ app.post('/api/hosts', authMiddleware, requireAdmin, (req, res) => {
     allowedRole: allowedRole === 'user' ? 'user' : 'admin', // default is admin
     envPermissions: envPermissions || { default: 'none', users: {}, groups: {} },
     gitUrl: gitUrl || '',
-    branch: branch || 'main'
+    branch: branch || 'main',
+    autoPrune: req.body.autoPrune || { enabled: false, mode: 'after-redeploy', lastRun: null }
   };
 
   hosts.push(newHost);
@@ -427,7 +429,7 @@ app.post('/api/hosts', authMiddleware, requireAdmin, (req, res) => {
 
 app.put('/api/hosts/:id', authMiddleware, requireAdmin, (req, res) => {
   const { id } = req.params;
-  const { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions, gitUrl, branch } = req.body;
+  const { name, type, ip, port, user, sshKeyPath, projectDir, allowedRole, envPermissions, gitUrl, branch, autoPrune } = req.body;
 
   let hosts = getHosts();
   const index = hosts.findIndex(h => h.id === id);
@@ -445,6 +447,7 @@ app.put('/api/hosts/:id', authMiddleware, requireAdmin, (req, res) => {
 
   const resolvedDir = type === 'local' ? path.resolve(projectDir || '.') : projectDir;
   hosts[index] = {
+    ...hosts[index],
     id,
     name,
     type,
@@ -454,9 +457,10 @@ app.put('/api/hosts/:id', authMiddleware, requireAdmin, (req, res) => {
     sshKeyPath: type === 'remote' ? sshKeyPath : '',
     projectDir: resolvedDir,
     allowedRole: allowedRole === 'user' ? 'user' : 'admin',
-    envPermissions: envPermissions || { default: 'none', users: {}, groups: {} },
+    envPermissions: envPermissions || hosts[index].envPermissions || { default: 'none', users: {}, groups: {} },
     gitUrl: gitUrl || '',
-    branch: branch || 'main'
+    branch: branch || 'main',
+    autoPrune: autoPrune !== undefined ? autoPrune : (hosts[index].autoPrune || { enabled: false, mode: 'after-redeploy', lastRun: null })
   };
 
   saveHosts(hosts);
@@ -826,6 +830,476 @@ app.get('/api/hosts/:id/containers', authMiddleware, (req, res) => {
     });
   }
 });
+
+// Helper to format byte counts into human-readable strings
+function formatBytes(bytes) {
+  if (typeof bytes !== 'number' || isNaN(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(i >= 2 ? 1 : 0)} ${units[i]}`;
+}
+
+// Helper to execute commands on either local or remote host with Promise & timeout
+function executeHostCommand(host, command, timeoutMs = 20000) {
+  return new Promise((resolve) => {
+    if (host.type === 'local') {
+      const workingDir = (host.projectDir && fs.existsSync(host.projectDir)) ? host.projectDir : undefined;
+      exec(command, { cwd: workingDir, maxBuffer: 15 * 1024 * 1024, timeout: timeoutMs }, (err, stdout, stderr) => {
+        resolve({
+          error: err,
+          code: err ? (typeof err.code === 'number' ? err.code : 1) : 0,
+          stdout: stdout || '',
+          stderr: stderr || ''
+        });
+      });
+    } else {
+      const conn = new Client();
+      let streamOutput = '';
+      let streamErr = '';
+      let settled = false;
+
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          try { conn.end(); } catch (e) {}
+          resolve({ error: new Error('SSH command timed out'), code: 1, stdout: streamOutput, stderr: streamErr || 'Command timed out' });
+        }
+      }, timeoutMs);
+
+      conn.on('ready', () => {
+        conn.exec(command, (err, stream) => {
+          if (err) {
+            if (!settled) {
+              settled = true;
+              clearTimeout(timer);
+              try { conn.end(); } catch (e) {}
+              resolve({ error: err, code: 1, stdout: '', stderr: err.message });
+            }
+            return;
+          }
+          stream.on('data', (data) => { streamOutput += data.toString(); });
+          stream.stderr.on('data', (data) => { streamErr += data.toString(); });
+          stream.on('close', (code) => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(timer);
+              try { conn.end(); } catch (e) {}
+              resolve({ error: null, code: typeof code === 'number' ? code : 0, stdout: streamOutput, stderr: streamErr });
+            }
+          });
+        });
+      }).on('error', (err) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve({ error: err, code: 1, stdout: '', stderr: err.message });
+        }
+      });
+
+      try {
+        const privateKey = fs.existsSync(host.sshKeyPath) ? fs.readFileSync(host.sshKeyPath) : host.sshKeyPath;
+        conn.connect({
+          host: host.ip,
+          port: host.port || 22,
+          username: host.user,
+          privateKey,
+          readyTimeout: 8000
+        });
+      } catch (err) {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve({ error: err, code: 1, stdout: '', stderr: err.message });
+        }
+      }
+    }
+  });
+}
+
+// Endpoint: Get Host Filesystem and Docker disk usage metrics
+app.get('/api/hosts/:id/disk', authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const hosts = getHosts();
+  const host = hosts.find(h => h.id === id);
+  if (!host) return res.status(404).json({ error: 'Host not found' });
+
+  const hostRole = host.allowedRole || 'admin';
+  if (hostRole === 'admin' && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Forbidden. Access restricted to administrator roles.' });
+  }
+
+  let filesystem = null;
+
+  // 1. Filesystem capacity
+  if (host.type === 'local') {
+    try {
+      const targetDir = (host.projectDir && fs.existsSync(host.projectDir)) ? host.projectDir : '.';
+      if (typeof fs.statfsSync === 'function') {
+        const stats = fs.statfsSync(targetDir);
+        const totalBytes = stats.bsize * stats.blocks;
+        const freeBytes = stats.bsize * stats.bfree;
+        const availBytes = stats.bsize * stats.bavail;
+        const usedBytes = Math.max(0, totalBytes - freeBytes);
+        const pct = totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0;
+        filesystem = {
+          total: formatBytes(totalBytes),
+          used: formatBytes(usedBytes),
+          available: formatBytes(availBytes),
+          totalBytes,
+          usedBytes,
+          availableBytes: availBytes,
+          percentUsed: pct,
+          mount: targetDir
+        };
+      }
+    } catch (e) {
+      console.error('Local statfs error:', e.message);
+    }
+  } else {
+    // Remote SSH: run df -Pk
+    const dfRes = await executeHostCommand(host, `df -Pk "${host.projectDir}" 2>/dev/null || df -Pk /`, 10000);
+    if (dfRes.stdout) {
+      const lines = dfRes.stdout.trim().split('\n').map(l => l.trim()).filter(Boolean);
+      if (lines.length >= 2) {
+        const dataLine = lines[lines.length - 1];
+        const parts = dataLine.split(/\s+/);
+        if (parts.length >= 5) {
+          const totalBytes = (parseInt(parts[1], 10) || 0) * 1024;
+          const usedBytes = (parseInt(parts[2], 10) || 0) * 1024;
+          const availBytes = (parseInt(parts[3], 10) || 0) * 1024;
+          const pct = parseInt(parts[4].replace('%', ''), 10) || (totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0);
+          filesystem = {
+            total: formatBytes(totalBytes),
+            used: formatBytes(usedBytes),
+            available: formatBytes(availBytes),
+            totalBytes,
+            usedBytes,
+            availableBytes: availBytes,
+            percentUsed: pct,
+            mount: parts[5] || '/'
+          };
+        }
+      }
+    }
+  }
+
+  // 2. Docker storage breakdown via docker system df
+  const dockerMetrics = {
+    images: { count: '0', active: '0', size: '0 B', reclaimable: '0 B' },
+    containers: { count: '0', active: '0', size: '0 B', reclaimable: '0 B' },
+    volumes: { count: '0', active: '0', size: '0 B', reclaimable: '0 B' },
+    buildCache: { count: '0', active: '0', size: '0 B', reclaimable: '0 B' },
+    available: false
+  };
+
+  const dfResult = await executeHostCommand(host, 'docker system df --format "{{json .}}" 2>/dev/null', 12000);
+  if (dfResult.stdout && dfResult.stdout.trim()) {
+    const lines = dfResult.stdout.trim().split('\n').map(l => l.trim()).filter(Boolean);
+    let parsedCount = 0;
+    lines.forEach(line => {
+      try {
+        const item = JSON.parse(line);
+        const type = (item.Type || '').toLowerCase();
+        const obj = {
+          count: String(item.TotalCount || item.Count || '0'),
+          active: String(item.Active || '0'),
+          size: item.Size || '0 B',
+          reclaimable: item.Reclaimable || '0 B'
+        };
+        if (type.includes('image')) {
+          dockerMetrics.images = obj;
+          parsedCount++;
+        } else if (type.includes('container')) {
+          dockerMetrics.containers = obj;
+          parsedCount++;
+        } else if (type.includes('volume')) {
+          dockerMetrics.volumes = obj;
+          parsedCount++;
+        } else if (type.includes('cache')) {
+          dockerMetrics.buildCache = obj;
+          parsedCount++;
+        }
+      } catch (e) {}
+    });
+    if (parsedCount > 0) {
+      dockerMetrics.available = true;
+    }
+  }
+
+  // Fallback to plain table parsing if json was unsupported
+  if (!dockerMetrics.available) {
+    const plainDf = await executeHostCommand(host, 'docker system df 2>/dev/null', 10000);
+    if (plainDf.stdout && plainDf.stdout.includes('TYPE')) {
+      const pLines = plainDf.stdout.trim().split('\n').slice(1);
+      pLines.forEach(pl => {
+        const cols = pl.trim().split(/\s{2,}/);
+        if (cols.length >= 4) {
+          const type = cols[0].toLowerCase();
+          const obj = {
+            count: cols[1] || '0',
+            active: cols[2] || '0',
+            size: cols[3] || '0 B',
+            reclaimable: cols[4] || '0 B'
+          };
+          if (type.includes('image')) dockerMetrics.images = obj;
+          else if (type.includes('container')) dockerMetrics.containers = obj;
+          else if (type.includes('volume')) dockerMetrics.volumes = obj;
+          else if (type.includes('cache')) dockerMetrics.buildCache = obj;
+          dockerMetrics.available = true;
+        }
+      });
+    }
+  }
+
+  res.json({
+    filesystem,
+    docker: dockerMetrics,
+    autoPrune: host.autoPrune || { enabled: false, mode: 'after-redeploy', lastRun: null }
+  });
+});
+
+// Endpoint: List all Docker images with in-use status
+app.get('/api/hosts/:id/images', authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const hosts = getHosts();
+  const host = hosts.find(h => h.id === id);
+  if (!host) return res.status(404).json({ error: 'Host not found' });
+
+  const hostRole = host.allowedRole || 'admin';
+  if (hostRole === 'admin' && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Forbidden. Access restricted to administrator roles.' });
+  }
+
+  const [imagesRes, psRes] = await Promise.all([
+    executeHostCommand(host, 'docker images --format "{{json .}}" 2>/dev/null', 15000),
+    executeHostCommand(host, 'docker ps -a --format "{{json .}}" 2>/dev/null', 10000)
+  ]);
+
+  const activeImageNames = new Set();
+  const activeContainerMap = {};
+
+  if (psRes.stdout) {
+    const psLines = psRes.stdout.trim().split('\n').map(l => l.trim()).filter(Boolean);
+    psLines.forEach(line => {
+      try {
+        const c = JSON.parse(line);
+        const img = (c.Image || '').trim();
+        const cName = (c.Names || c.ID || 'container').split(',')[0].replace(/^\//, '').trim();
+        if (img) {
+          activeImageNames.add(img);
+          if (!activeContainerMap[img]) activeContainerMap[img] = [];
+          activeContainerMap[img].push(cName);
+        }
+      } catch (e) {}
+    });
+  }
+
+  const images = [];
+  if (imagesRes.stdout) {
+    const imgLines = imagesRes.stdout.trim().split('\n').map(l => l.trim()).filter(Boolean);
+    imgLines.forEach(line => {
+      try {
+        const item = JSON.parse(line);
+        const repo = item.Repository || '<none>';
+        const tag = item.Tag || '<none>';
+        const rawId = item.ID || '';
+        const shortId = rawId.replace(/^sha256:/, '').substring(0, 12);
+        const fullRef = (repo !== '<none>' && tag !== '<none>') ? `${repo}:${tag}` : repo;
+
+        let inUse = false;
+        let attachedContainers = [];
+
+        if (activeImageNames.has(fullRef)) {
+          inUse = true;
+          attachedContainers = activeContainerMap[fullRef] || [];
+        } else if (activeImageNames.has(repo)) {
+          inUse = true;
+          attachedContainers = activeContainerMap[repo] || [];
+        } else if (activeImageNames.has(shortId) || activeImageNames.has(rawId)) {
+          inUse = true;
+          attachedContainers = activeContainerMap[shortId] || activeContainerMap[rawId] || [];
+        } else {
+          for (const activeImg of activeImageNames) {
+            if (rawId && (activeImg.includes(shortId) || rawId.includes(activeImg))) {
+              inUse = true;
+              attachedContainers = activeContainerMap[activeImg] || [];
+              break;
+            }
+          }
+        }
+
+        if (!inUse && item.Containers && parseInt(item.Containers, 10) > 0) {
+          inUse = true;
+        }
+
+        images.push({
+          id: shortId,
+          fullId: rawId,
+          repository: repo,
+          tag: tag,
+          size: item.Size || '0 B',
+          createdSince: item.CreatedSince || '',
+          createdAt: item.CreatedAt || '',
+          containers: item.Containers || (inUse ? '1' : '0'),
+          inUse,
+          containersInUse: attachedContainers
+        });
+      } catch (e) {}
+    });
+  }
+
+  res.json({ images });
+});
+
+// Endpoint: Delete a single Docker image
+app.delete('/api/hosts/:id/images/:imageId', authMiddleware, requireAdmin, async (req, res) => {
+  const { id, imageId } = req.params;
+  const hosts = getHosts();
+  const host = hosts.find(h => h.id === id);
+  if (!host) return res.status(404).json({ error: 'Host not found' });
+
+  const sanitizedId = (imageId || '').trim();
+  if (!sanitizedId || !/^[a-zA-Z0-9_\-.:/@]+$/.test(sanitizedId)) {
+    return res.status(400).json({ error: 'Invalid Docker image identifier.' });
+  }
+
+  const force = req.query.force === 'true';
+  const cmd = `docker rmi ${force ? '-f ' : ''}${sanitizedId}`;
+
+  const result = await executeHostCommand(host, cmd, 20000);
+  if (result.code !== 0) {
+    const errMsg = (result.stderr || result.stdout || 'Failed to remove image.').trim();
+    const isInUse = errMsg.toLowerCase().includes('being used') || errMsg.toLowerCase().includes('conflict');
+    return res.status(400).json({
+      error: errMsg,
+      isInUse
+    });
+  }
+
+  res.json({
+    success: true,
+    message: `Image ${sanitizedId} deleted successfully.`,
+    output: result.stdout.trim()
+  });
+});
+
+// Endpoint: Prune unused/dangling Docker images
+app.post('/api/hosts/:id/images/prune', authMiddleware, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const hosts = getHosts();
+  const host = hosts.find(h => h.id === id);
+  if (!host) return res.status(404).json({ error: 'Host not found' });
+
+  const pruneAll = req.query.all === 'true';
+  const cmd = pruneAll ? 'docker image prune -a -f' : 'docker image prune -f';
+
+  const result = await executeHostCommand(host, cmd, 30000);
+  if (result.code !== 0) {
+    return res.status(400).json({
+      error: (result.stderr || result.stdout || 'Failed to prune images.').trim()
+    });
+  }
+
+  // Update lastRun timestamp
+  const idx = hosts.findIndex(h => h.id === id);
+  if (idx !== -1) {
+    hosts[idx].autoPrune = {
+      ...(hosts[idx].autoPrune || { enabled: false, mode: 'after-redeploy' }),
+      lastRun: new Date().toISOString()
+    };
+    saveHosts(hosts);
+  }
+
+  res.json({
+    success: true,
+    message: 'Images pruned successfully.',
+    output: (result.stdout || 'No unused images to remove.').trim()
+  });
+});
+
+// Endpoint: Configure auto-prune settings for a host
+app.put('/api/hosts/:id/autoprune', authMiddleware, requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const { enabled, mode } = req.body;
+
+  let hosts = getHosts();
+  const idx = hosts.findIndex(h => h.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Host not found' });
+
+  const validModes = ['after-redeploy', 'daily', 'weekly'];
+  const chosenMode = validModes.includes(mode) ? mode : 'after-redeploy';
+
+  hosts[idx].autoPrune = {
+    enabled: Boolean(enabled),
+    mode: chosenMode,
+    lastRun: hosts[idx].autoPrune?.lastRun || null
+  };
+
+  saveHosts(hosts);
+  res.json({
+    success: true,
+    autoPrune: hosts[idx].autoPrune
+  });
+});
+
+// Helper to trigger auto-pruning on a host
+function checkTriggerAutoPrune(host, emitLog = null) {
+  if (!host || !host.autoPrune || !host.autoPrune.enabled) return;
+  const log = emitLog || ((msg) => console.log(`[AutoPrune][${host.name}] ${msg}`));
+  log(`\r\n\x1b[36m[Auto-Prune] Post-redeploy cleanup triggered: running 'docker image prune -f'...\x1b[0m\r\n`);
+
+  executeHostCommand(host, 'docker image prune -f', 30000).then(({ stdout, stderr, code }) => {
+    if (code === 0) {
+      log(`\x1b[32m[Auto-Prune] Completed successfully:\x1b[0m\r\n${(stdout || 'Clean.').trim()}\r\n`);
+      const allHosts = getHosts();
+      const idx = allHosts.findIndex(h => h.id === host.id);
+      if (idx !== -1) {
+        allHosts[idx].autoPrune = {
+          ...(allHosts[idx].autoPrune || {}),
+          lastRun: new Date().toISOString()
+        };
+        saveHosts(allHosts);
+      }
+    } else {
+      log(`\x1b[33m[Auto-Prune] Note during cleanup: ${(stderr || 'Completed with warnings').trim()}\x1b[0m\r\n`);
+    }
+  }).catch(err => {
+    log(`\x1b[31m[Auto-Prune] Error: ${err.message}\x1b[0m\r\n`);
+  });
+}
+
+// Background scheduler for daily and weekly auto-prune
+function initAutoPruneScheduler() {
+  setInterval(() => {
+    try {
+      const allHosts = getHosts();
+      const now = Date.now();
+      allHosts.forEach(host => {
+        if (!host.autoPrune || !host.autoPrune.enabled) return;
+        const mode = host.autoPrune.mode;
+        const lastRunTime = host.autoPrune.lastRun ? new Date(host.autoPrune.lastRun).getTime() : 0;
+        let shouldRun = false;
+
+        if (mode === 'daily') {
+          if (!lastRunTime || (now - lastRunTime) >= 24 * 3600 * 1000) {
+            shouldRun = true;
+          }
+        } else if (mode === 'weekly') {
+          if (!lastRunTime || (now - lastRunTime) >= 7 * 24 * 3600 * 1000) {
+            shouldRun = true;
+          }
+        }
+
+        if (shouldRun) {
+          console.log(`[AutoPrune] Executing scheduled (${mode}) prune for host: ${host.name}`);
+          checkTriggerAutoPrune(host);
+        }
+      });
+    } catch (e) {
+      console.error('Error in auto-prune scheduler interval:', e);
+    }
+  }, 60 * 60 * 1000);
+}
 
 // Helper to determine active env permissions stage
 function getEnvPermission(host, userContext) {
@@ -1534,6 +2008,9 @@ wss.on('connection', (ws, request) => {
       const exitCode = typeof code === 'number' ? code : 1;
       if (exitCode === 0) {
         emitLog(`\r\n\x1b[32m=== Command completed successfully (exit code 0) ===\x1b[0m\r\n`);
+        if ((action === 'redeploy' || action === 'force-redeploy') && host.autoPrune && host.autoPrune.enabled && host.autoPrune.mode === 'after-redeploy') {
+          checkTriggerAutoPrune(host, emitLog);
+        }
       } else {
         emitLog(`\r\n\x1b[31m=== Command failed with exit code ${exitCode} ===\x1b[0m\r\n`);
       }
@@ -1589,6 +2066,9 @@ wss.on('connection', (ws, request) => {
           const exitCode = typeof code === 'number' ? code : (signal ? 1 : 0);
           if (exitCode === 0) {
             emitLog(`\r\n\x1b[32m=== Command completed successfully (exit code 0) ===\x1b[0m\r\n`);
+            if ((action === 'redeploy' || action === 'force-redeploy') && host.autoPrune && host.autoPrune.enabled && host.autoPrune.mode === 'after-redeploy') {
+              checkTriggerAutoPrune(host, emitLog);
+            }
           } else {
             emitLog(`\r\n\x1b[31m=== Command failed. Code: ${exitCode}, Signal: ${signal || 'none'} ===\x1b[0m\r\n`);
           }
@@ -1645,4 +2125,5 @@ server.listen(PORT, () => {
   console.log(`   Port: ${PORT}                               `);
   console.log(`   Authentication Type: ${process.env.AUTH_TYPE || 'none'} `);
   console.log(`===============================================`);
+  initAutoPruneScheduler();
 });

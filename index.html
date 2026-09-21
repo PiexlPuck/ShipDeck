@@ -875,6 +875,117 @@
       font-weight: 500;
     }
 
+    /* Panel Tabs Navigation */
+    .panel-tab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      padding: 7px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .panel-tab-btn:hover {
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .panel-tab-btn.active {
+      color: var(--accent-color);
+      background: rgba(59, 130, 246, 0.12);
+      border-color: rgba(59, 130, 246, 0.25);
+    }
+
+    .tab-pill {
+      font-size: 11px;
+      padding: 1px 7px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .panel-tab-btn.active .tab-pill {
+      background: rgba(59, 130, 246, 0.25);
+      color: #93c5fd;
+    }
+
+    .image-item-card {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+
+    .image-item-card:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+      transform: translateY(-2px);
+    }
+
+    .storage-stat-card {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .storage-stat-val {
+      font-size: 20px;
+      font-weight: 700;
+      font-family: 'Outfit', sans-serif;
+      color: var(--text-main);
+    }
+
+    .storage-stat-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .storage-stat-reclaim {
+      font-size: 11px;
+      color: #10b981;
+      font-family: 'Fira Code', monospace;
+    }
+
+    .filter-pill-btn {
+      padding: 4px 10px;
+      font-size: 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-tertiary);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .filter-pill-btn:hover {
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .filter-pill-btn.active {
+      background: rgba(59, 130, 246, 0.2);
+      border-color: rgba(59, 130, 246, 0.4);
+      color: var(--accent-color);
+      font-weight: 600;
+    }
+
     /* Toast Notification System */
     .toast-container {
       position: fixed;
@@ -1243,6 +1354,15 @@
                 📜 View Change Log
               </button>
             </div>
+            <!-- Live Disk Usage Indicator Bar in Host Header -->
+            <div id="diskUsageBar" style="display: none; margin-top: 8px; align-items: center; gap: 10px; font-size: 12px; flex-wrap: wrap;">
+              <span id="diskBadge" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;" onclick="switchPanelTab('storage')" title="Click to view disk & storage breakdown">
+                💾 Disk: <span id="diskText">Loading...</span>
+              </span>
+              <div style="width: 100px; height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 3px; overflow: hidden; cursor: pointer;" onclick="switchPanelTab('storage')" title="Click to view disk & storage breakdown">
+                <div id="diskProgressBar" style="width: 0%; height: 100%; background: #60a5fa; transition: width 0.3s ease;"></div>
+              </div>
+            </div>
           </div>
           <button class="btn btn-secondary" onclick="checkActiveHostStatus()">
             🔄 Ping Host
@@ -1269,6 +1389,10 @@
           <button class="btn btn-secondary" id="logsBtn" onclick="runAction('logs')">
             📝 View Logs
           </button>
+          <!-- Images and Disk Storage button -->
+          <button class="btn btn-secondary" id="manageImagesBtn" onclick="switchPanelTab('images')" title="Inspect Docker images and disk space">
+            🖼️ Images & Disk
+          </button>
           <!-- .env file viewer button -->
           <button class="btn btn-secondary" id="manageEnvBtn" onclick="viewEnvFile()" style="display: none;">
             📝 Manage .env
@@ -1287,13 +1411,159 @@
           </button>
         </div>
 
-        <!-- Deployed Containers List Panel Section -->
+        <!-- Unified Containers, Images & Storage Panel -->
         <div class="containers-card" id="containersSection" style="display: none;">
-          <h3 style="font-family:'Outfit'; font-size:16px; display:flex; align-items:center; gap:8px;">
-            🐳 Deployed Project Containers
-          </h3>
-          <div id="containersList" class="container-list-grid">
-            <!-- Rendered containers dynamically -->
+          <!-- Panel Navigation Tabs -->
+          <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <button class="panel-tab-btn active" id="tabContainersBtn" onclick="switchPanelTab('containers')">
+                🐳 Containers <span id="containersCountPill" class="tab-pill">0</span>
+              </button>
+              <button class="panel-tab-btn" id="tabImagesBtn" onclick="switchPanelTab('images')">
+                🖼️ Docker Images <span id="imagesCountPill" class="tab-pill">0</span>
+              </button>
+              <button class="panel-tab-btn" id="tabStorageBtn" onclick="switchPanelTab('storage')">
+                💾 Disk & Storage
+              </button>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;" id="tabActionControls">
+              <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px;" onclick="refreshActiveTab()">
+                🔄 Refresh
+              </button>
+            </div>
+          </div>
+
+          <!-- Tab 1: Containers List -->
+          <div id="tabContentContainers">
+            <div id="containersList" class="container-list-grid">
+              <!-- Rendered containers dynamically -->
+            </div>
+          </div>
+
+          <!-- Tab 2: Docker Images List -->
+          <div id="tabContentImages" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap;">
+              <div style="display: flex; gap: 10px; align-items: center; flex: 1; min-width: 240px; flex-wrap: wrap;">
+                <input type="text" id="imageSearchInput" placeholder="🔍 Search images by repository or tag..." 
+                  style="flex: 1; min-width: 180px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 7px 12px; color: var(--text-main); font-size: 13px;"
+                  oninput="renderDockerImages()">
+                <div style="display: flex; gap: 4px;">
+                  <button class="filter-pill-btn active" id="imgFilterAll" onclick="setImageFilter('all')">All</button>
+                  <button class="filter-pill-btn" id="imgFilterInUse" onclick="setImageFilter('inuse')">In Use</button>
+                  <button class="filter-pill-btn" id="imgFilterUnused" onclick="setImageFilter('unused')">Unused</button>
+                </div>
+              </div>
+              <button class="btn btn-secondary" onclick="pruneDockerImages(false)" style="padding: 6px 14px; font-size: 12px;" title="Remove all dangling images">
+                🧹 Prune Dangling Images
+              </button>
+            </div>
+            <div id="imagesList" class="container-list-grid">
+              <!-- Rendered images dynamically -->
+            </div>
+          </div>
+
+          <!-- Tab 3: Disk & Storage Breakdown -->
+          <div id="tabContentStorage" style="display: none;">
+            <div style="display: flex; flex-direction: column; gap: 20px;">
+              <!-- Host Filesystem Card -->
+              <div style="background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 8px; padding: 18px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                  <div style="font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px;">
+                    🖥️ Host Filesystem Storage (<span id="fsMountPoint" style="font-family: 'Fira Code', monospace; font-size: 13px; color: var(--accent-color);">/</span>)
+                  </div>
+                  <div id="fsPercentBadge" style="font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 12px; background: rgba(59, 130, 246, 0.15); color: #60a5fa;">
+                    --% used
+                  </div>
+                </div>
+                <!-- Progress bar -->
+                <div style="width: 100%; height: 10px; background: rgba(255, 255, 255, 0.08); border-radius: 5px; overflow: hidden; margin-bottom: 10px;">
+                  <div id="fsProgressBar" style="width: 0%; height: 100%; background: #60a5fa; transition: width 0.4s ease;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); flex-wrap: wrap; gap: 8px;">
+                  <div>Used: <strong id="fsUsedText" style="color: var(--text-main);">--</strong></div>
+                  <div>Available: <strong id="fsAvailText" style="color: #10b981;">--</strong></div>
+                  <div>Total: <strong id="fsTotalText" style="color: var(--text-main);">--</strong></div>
+                </div>
+              </div>
+
+              <!-- Docker Subsystem Storage Breakdown Grid -->
+              <div>
+                <div style="font-weight: 600; font-size: 14px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+                  🐳 Docker Engine Disk Usage (docker system df)
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px;">
+                  <div class="storage-stat-card">
+                    <div class="storage-stat-label">
+                      <span>🖼️ Images</span>
+                      <span id="dockerImgCount" class="tab-pill">0</span>
+                    </div>
+                    <div class="storage-stat-val" id="dockerImgSize">0 B</div>
+                    <div class="storage-stat-reclaim" id="dockerImgReclaim">Reclaimable: 0 B</div>
+                  </div>
+                  <div class="storage-stat-card">
+                    <div class="storage-stat-label">
+                      <span>📦 Containers</span>
+                      <span id="dockerContainerCount" class="tab-pill">0</span>
+                    </div>
+                    <div class="storage-stat-val" id="dockerContainerSize">0 B</div>
+                    <div class="storage-stat-reclaim" id="dockerContainerReclaim">Reclaimable: 0 B</div>
+                  </div>
+                  <div class="storage-stat-card">
+                    <div class="storage-stat-label">
+                      <span>💾 Local Volumes</span>
+                      <span id="dockerVolCount" class="tab-pill">0</span>
+                    </div>
+                    <div class="storage-stat-val" id="dockerVolSize">0 B</div>
+                    <div class="storage-stat-reclaim" id="dockerVolReclaim">Reclaimable: 0 B</div>
+                  </div>
+                  <div class="storage-stat-card">
+                    <div class="storage-stat-label">
+                      <span>🔨 Build Cache</span>
+                      <span id="dockerCacheCount" class="tab-pill">0</span>
+                    </div>
+                    <div class="storage-stat-val" id="dockerCacheSize">0 B</div>
+                    <div class="storage-stat-reclaim" id="dockerCacheReclaim">Reclaimable: 0 B</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Auto-Prune Configuration Card -->
+              <div style="background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 8px; padding: 18px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                  <div style="font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px;">
+                    ⚙️ Auto-Prune Configuration
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; user-select: none;">
+                      <input type="checkbox" id="autoPruneToggle" onchange="toggleAutoPruneInputs()" style="width: 16px; height: 16px; accent-color: var(--accent-color);">
+                      <span>Enable Auto-Prune</span>
+                    </label>
+                  </div>
+                </div>
+                <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px; line-height: 1.5;">
+                  Automatically clean up dangling and unreferenced Docker images to keep server disk space optimized.
+                </div>
+                <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <label for="autoPruneMode" style="font-size: 12px; color: var(--text-muted);">Trigger Frequency:</label>
+                    <select id="autoPruneMode" style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 12px; color: var(--text-main); font-size: 13px;">
+                      <option value="after-redeploy">After Every Redeploy (Recommended)</option>
+                      <option value="daily">Daily at Midnight</option>
+                      <option value="weekly">Weekly (Sundays)</option>
+                    </select>
+                  </div>
+                  <button class="btn btn-primary" id="saveAutoPruneBtn" onclick="saveAutoPruneSettings()" style="padding: 6px 14px; font-size: 12px;">
+                    💾 Save Auto-Prune Settings
+                  </button>
+                  <button class="btn btn-secondary" onclick="pruneDockerImages(false)" style="padding: 6px 14px; font-size: 12px;">
+                    🧹 Run Prune Now
+                  </button>
+                </div>
+                <div id="autoPruneLastRun" style="font-size: 11px; color: var(--text-muted); margin-top: 10px; font-family: 'Fira Code', monospace;">
+                  Last Pruned: Never
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -2259,6 +2529,8 @@
         function selectHost(host) {
           selectedHost = host;
           activeChangelog = [];
+          cachedImages = [];
+          cachedDiskData = null;
           hideForceButtons();
           renderHostList();
 
@@ -2269,8 +2541,10 @@
             try { if (fitAddon) fitAddon.fit(); } catch (e) { }
           }, 50);
 
-          // Load active project containers status list and git update status
+          // Load active project containers status list, disk metrics, docker images, and git update status
           loadContainers(host.id);
+          loadDiskUsage(host.id);
+          loadDockerImages(host.id);
           fetchGitStatus(host.id);
 
           document.getElementById('selectedHostName').textContent = host.name;
@@ -2344,7 +2618,11 @@
           term.write(`\r\nPinging Host connection: ${selectedHost.name}...\r\n`);
 
           await pingHostStatus(selectedHost.id);
-          await loadContainers(selectedHost.id);
+          await Promise.all([
+            loadContainers(selectedHost.id),
+            loadDiskUsage(selectedHost.id),
+            loadDockerImages(selectedHost.id)
+          ]);
 
           term.write(`Ping complete. Status refreshed in Sidebar.\r\n\r\n`);
           termStatus.textContent = 'TERMINAL: STANDBY';
@@ -2551,6 +2829,8 @@
             wsConn = null;
             pingHostStatus(selectedHost.id);
             loadContainers(selectedHost.id);
+            loadDiskUsage(selectedHost.id);
+            loadDockerImages(selectedHost.id);
           };
 
           wsConn.onerror = (error) => {
@@ -3017,6 +3297,8 @@
             }
 
             const list = await response.json();
+            const countPill = document.getElementById('containersCountPill');
+            if (countPill) countPill.textContent = list ? list.length : 0;
             containerList.innerHTML = '';
 
             if (!list || list.length === 0) {
@@ -3108,6 +3390,388 @@
             });
           });
           return links;
+        }
+
+        // --- Panel Tabs & Storage/Image Management ---
+        let currentPanelTab = 'containers';
+        let cachedImages = [];
+        let cachedDiskData = null;
+        let currentImageFilter = 'all';
+
+        function switchPanelTab(tabName) {
+          currentPanelTab = tabName;
+          const tabContainersBtn = document.getElementById('tabContainersBtn');
+          const tabImagesBtn = document.getElementById('tabImagesBtn');
+          const tabStorageBtn = document.getElementById('tabStorageBtn');
+          const tabContentContainers = document.getElementById('tabContentContainers');
+          const tabContentImages = document.getElementById('tabContentImages');
+          const tabContentStorage = document.getElementById('tabContentStorage');
+
+          if (tabContainersBtn) tabContainersBtn.className = 'panel-tab-btn ' + (tabName === 'containers' ? 'active' : '');
+          if (tabImagesBtn) tabImagesBtn.className = 'panel-tab-btn ' + (tabName === 'images' ? 'active' : '');
+          if (tabStorageBtn) tabStorageBtn.className = 'panel-tab-btn ' + (tabName === 'storage' ? 'active' : '');
+
+          if (tabContentContainers) tabContentContainers.style.display = tabName === 'containers' ? 'block' : 'none';
+          if (tabContentImages) tabContentImages.style.display = tabName === 'images' ? 'block' : 'none';
+          if (tabContentStorage) tabContentStorage.style.display = tabName === 'storage' ? 'block' : 'none';
+
+          if (!selectedHost) return;
+
+          if (tabName === 'images') {
+            loadDockerImages(selectedHost.id);
+          } else if (tabName === 'storage') {
+            loadDiskUsage(selectedHost.id);
+          }
+        }
+
+        function refreshActiveTab() {
+          if (!selectedHost) return;
+          if (currentPanelTab === 'containers') {
+            loadContainers(selectedHost.id);
+          } else if (currentPanelTab === 'images') {
+            loadDockerImages(selectedHost.id);
+          } else if (currentPanelTab === 'storage') {
+            loadDiskUsage(selectedHost.id);
+          }
+        }
+
+        async function loadDiskUsage(hostId) {
+          if (!hostId) return;
+          const diskBar = document.getElementById('diskUsageBar');
+          const diskText = document.getElementById('diskText');
+          const diskProg = document.getElementById('diskProgressBar');
+
+          try {
+            const res = await fetch(`/api/hosts/${hostId}/disk`, { headers: getAuthHeaders() });
+            if (!res.ok) return;
+            const data = await res.json();
+            cachedDiskData = data;
+
+            // 1. Host Header Disk Badge
+            if (data.filesystem) {
+              const fs = data.filesystem;
+              if (diskBar) diskBar.style.display = 'inline-flex';
+              if (diskText) diskText.textContent = `${fs.used} / ${fs.total} (${fs.percentUsed}%)`;
+              if (diskProg) {
+                diskProg.style.width = `${Math.min(100, fs.percentUsed)}%`;
+                if (fs.percentUsed > 85) {
+                  diskProg.style.background = '#ef4444';
+                } else if (fs.percentUsed > 70) {
+                  diskProg.style.background = '#f59e0b';
+                } else {
+                  diskProg.style.background = '#60a5fa';
+                }
+              }
+
+              // Storage Tab Filesystem metrics
+              const fsMount = document.getElementById('fsMountPoint');
+              const fsBadge = document.getElementById('fsPercentBadge');
+              const fsProgBar = document.getElementById('fsProgressBar');
+              const fsUsed = document.getElementById('fsUsedText');
+              const fsAvail = document.getElementById('fsAvailText');
+              const fsTotal = document.getElementById('fsTotalText');
+
+              if (fsMount) fsMount.textContent = fs.mount || '/';
+              if (fsBadge) {
+                fsBadge.textContent = `${fs.percentUsed}% used`;
+                fsBadge.style.color = fs.percentUsed > 85 ? '#ef4444' : (fs.percentUsed > 70 ? '#f59e0b' : '#60a5fa');
+                fsBadge.style.background = fs.percentUsed > 85 ? 'rgba(239, 68, 68, 0.15)' : (fs.percentUsed > 70 ? 'rgba(245, 158, 11, 0.15)' : 'rgba(59, 130, 246, 0.15)');
+              }
+              if (fsProgBar) {
+                fsProgBar.style.width = `${Math.min(100, fs.percentUsed)}%`;
+                fsProgBar.style.background = fs.percentUsed > 85 ? '#ef4444' : (fs.percentUsed > 70 ? '#f59e0b' : '#60a5fa');
+              }
+              if (fsUsed) fsUsed.textContent = fs.used;
+              if (fsAvail) fsAvail.textContent = fs.available;
+              if (fsTotal) fsTotal.textContent = fs.total;
+            } else {
+              if (diskBar) diskBar.style.display = 'none';
+            }
+
+            // 2. Docker Storage Breakdown
+            if (data.docker) {
+              const d = data.docker;
+              const setCard = (prefix, obj) => {
+                const count = document.getElementById(`docker${prefix}Count`);
+                const size = document.getElementById(`docker${prefix}Size`);
+                const reclaim = document.getElementById(`docker${prefix}Reclaim`);
+                if (count) count.textContent = obj.count || '0';
+                if (size) size.textContent = obj.size || '0 B';
+                if (reclaim) reclaim.textContent = `Reclaimable: ${obj.reclaimable || '0 B'}`;
+              };
+              setCard('Img', d.images || {});
+              setCard('Container', d.containers || {});
+              setCard('Vol', d.volumes || {});
+              setCard('Cache', d.buildCache || {});
+            }
+
+            // 3. Auto-Prune Configuration Card
+            if (data.autoPrune) {
+              const apToggle = document.getElementById('autoPruneToggle');
+              const apMode = document.getElementById('autoPruneMode');
+              const apLast = document.getElementById('autoPruneLastRun');
+              if (apToggle) apToggle.checked = Boolean(data.autoPrune.enabled);
+              if (apMode && data.autoPrune.mode) apMode.value = data.autoPrune.mode;
+              if (apLast) {
+                if (data.autoPrune.lastRun) {
+                  const dt = new Date(data.autoPrune.lastRun);
+                  apLast.textContent = `Last Pruned: ${dt.toLocaleDateString()} ${dt.toLocaleTimeString()}`;
+                } else {
+                  apLast.textContent = 'Last Pruned: Never';
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Error fetching disk data:', err);
+          }
+        }
+
+        async function loadDockerImages(hostId) {
+          if (!hostId) return;
+          const listEl = document.getElementById('imagesList');
+          if (listEl) {
+            listEl.innerHTML = '<div style="grid-column: 1/-1; color: var(--text-muted); font-size:13px; padding: 12px 0;">Loading Docker images...</div>';
+          }
+
+          try {
+            const res = await fetch(`/api/hosts/${hostId}/images`, { headers: getAuthHeaders() });
+            if (!res.ok) {
+              if (listEl) listEl.innerHTML = '<div style="grid-column: 1/-1; color: var(--error); font-size:13px;">Failed to load Docker images for this host.</div>';
+              return;
+            }
+            const data = await res.json();
+            cachedImages = data.images || [];
+            const countPill = document.getElementById('imagesCountPill');
+            if (countPill) countPill.textContent = cachedImages.length;
+            renderDockerImages();
+          } catch (err) {
+            console.error('Error loading images:', err);
+            if (listEl) listEl.innerHTML = '<div style="grid-column: 1/-1; color: var(--error); font-size:13px;">Error communicating image status.</div>';
+          }
+        }
+
+        function setImageFilter(filter) {
+          currentImageFilter = filter;
+          ['All', 'InUse', 'Unused'].forEach(name => {
+            const btn = document.getElementById(`imgFilter${name}`);
+            if (btn) btn.className = 'filter-pill-btn ' + (name.toLowerCase() === filter ? 'active' : '');
+          });
+          renderDockerImages();
+        }
+
+        function renderDockerImages() {
+          const listEl = document.getElementById('imagesList');
+          if (!listEl) return;
+
+          const searchInput = document.getElementById('imageSearchInput');
+          const query = (searchInput ? searchInput.value : '').trim().toLowerCase();
+
+          let filtered = cachedImages.filter(img => {
+            if (currentImageFilter === 'inuse' && !img.inUse) return false;
+            if (currentImageFilter === 'unused' && img.inUse) return false;
+
+            if (query) {
+              const matchRepo = (img.repository || '').toLowerCase().includes(query);
+              const matchTag = (img.tag || '').toLowerCase().includes(query);
+              const matchId = (img.id || '').toLowerCase().includes(query);
+              return matchRepo || matchTag || matchId;
+            }
+            return true;
+          });
+
+          if (filtered.length === 0) {
+            listEl.innerHTML = `
+              <div style="grid-column: 1/-1; color: var(--text-muted); font-size:13px; padding: 24px; background: rgba(255, 255, 255, 0.02); border: 1px dashed var(--border-color); border-radius: 8px; text-align: center;">
+                <div style="font-size: 28px; margin-bottom: 8px;">🖼️</div>
+                <div style="font-weight: 600; color: var(--text-main); margin-bottom: 4px;">No images found</div>
+                <div style="font-size: 12px;">${cachedImages.length === 0 ? 'No Docker images are currently present on this host.' : 'No images matched your current filter criteria.'}</div>
+              </div>
+            `;
+            return;
+          }
+
+          listEl.innerHTML = '';
+          filtered.forEach(img => {
+            const card = document.createElement('div');
+            card.className = 'image-item-card';
+
+            const repo = img.repository || '<none>';
+            const tag = img.tag || '<none>';
+            const isDangling = repo === '<none>' || tag === '<none>';
+            const displayTitle = isDangling ? `&lt;dangling image&gt; (${escapeHTML(img.id)})` : `${escapeHTML(repo)}:${escapeHTML(tag)}`;
+            const statusBadgeClass = img.inUse ? 'running' : 'stopped';
+            const statusLabel = img.inUse ? 'In Use' : 'Unused';
+
+            let containersText = '';
+            if (img.containersInUse && img.containersInUse.length > 0) {
+              containersText = `<div>Containers: <span style="font-family: 'Fira Code', monospace; color: var(--accent-color); font-size: 11px;">${img.containersInUse.map(escapeHTML).join(', ')}</span></div>`;
+            }
+
+            card.innerHTML = `
+              <div class="container-card-header">
+                <span class="container-card-title" title="${isDangling ? img.id : `${repo}:${tag}`}">${displayTitle}</span>
+                <span class="container-status-badge ${statusBadgeClass}">${statusLabel}</span>
+              </div>
+              <div class="container-card-meta">
+                <div>ID: <span style="font-family: 'Fira Code', monospace; font-size: 11px;">${escapeHTML(img.id)}</span></div>
+                <div>Size: <strong style="color: var(--text-main);">${escapeHTML(img.size)}</strong></div>
+                ${img.createdSince ? `<div>Created: <span style="color: var(--text-muted); font-size: 11px;">${escapeHTML(img.createdSince)}</span></div>` : ''}
+                ${containersText}
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.05);">
+                <button class="btn btn-secondary font-btn" style="padding: 3px 8px; font-size: 11px;" onclick="copyImageId('${escapeHTML(img.id)}')">
+                  📋 Copy ID
+                </button>
+                <button class="btn btn-danger font-btn" style="padding: 3px 10px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" onclick="promptDeleteImage('${escapeHTML(img.id)}', '${escapeHTML(repo)}:${escapeHTML(tag)}', ${Boolean(img.inUse)})">
+                  🗑️ Delete
+                </button>
+              </div>
+            `;
+            listEl.appendChild(card);
+          });
+        }
+
+        function copyImageId(id) {
+          navigator.clipboard.writeText(id).then(() => {
+            showToast(`Image ID ${id} copied to clipboard!`, 'info');
+          }).catch(() => {
+            showToast('Failed to copy ID', 'error');
+          });
+        }
+
+        async function promptDeleteImage(imageId, displayRef, inUse) {
+          if (!selectedHost) return;
+
+          let warningMsg = `Are you sure you want to delete image "${displayRef}" (${imageId})?`;
+          if (inUse) {
+            warningMsg = `⚠️ Notice: Image "${displayRef}" appears to be actively IN USE by one or more running containers. Removing it may fail or disrupt running services. Are you sure you want to proceed?`;
+          }
+
+          const confirmed = await showConfirm({
+            title: 'Delete Docker Image',
+            message: warningMsg,
+            confirmText: '🗑️ Delete Image',
+            danger: true
+          });
+
+          if (!confirmed) return;
+
+          deleteSingleImage(imageId, displayRef, false);
+        }
+
+        async function deleteSingleImage(imageId, displayRef, force = false) {
+          if (!selectedHost) return;
+
+          try {
+            const res = await fetch(`/api/hosts/${selectedHost.id}/images/${imageId}${force ? '?force=true' : ''}`, {
+              method: 'DELETE',
+              headers: getAuthHeaders()
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+              showToast(`Image ${displayRef} deleted successfully.`, 'success');
+              loadDockerImages(selectedHost.id);
+              loadDiskUsage(selectedHost.id);
+            } else {
+              if (data.isInUse && !force) {
+                const forceConfirm = await showConfirm({
+                  title: 'Force Delete Image?',
+                  message: `Docker reported: "${data.error}". The image is actively referenced or has dependent child images. Would you like to FORCE delete this image (-f)?`,
+                  confirmText: '⚡ Force Delete Image',
+                  danger: true
+                });
+                if (forceConfirm) {
+                  deleteSingleImage(imageId, displayRef, true);
+                }
+              } else {
+                alert('Delete failed: ' + (data.error || 'Unknown error'));
+                showToast('Delete failed: ' + (data.error || 'Unknown error'), 'error');
+              }
+            }
+          } catch (err) {
+            console.error('Error deleting image:', err);
+            showToast('Network error deleting image', 'error');
+          }
+        }
+
+        async function pruneDockerImages(all = false) {
+          if (!selectedHost) return;
+
+          const confirmed = await showConfirm({
+            title: all ? 'Prune All Unused Images' : 'Prune Dangling Images',
+            message: all
+              ? 'This will remove ALL Docker images not actively used by any running container. Are you sure?'
+              : 'This will remove all dangling Docker images (<none>:<none>) that have no tags or containers. Are you sure?',
+            confirmText: '🧹 Prune Images',
+            danger: all
+          });
+
+          if (!confirmed) return;
+
+          try {
+            const res = await fetch(`/api/hosts/${selectedHost.id}/images/prune${all ? '?all=true' : ''}`, {
+              method: 'POST',
+              headers: getAuthHeaders()
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+              showToast(data.message || 'Prune completed.', 'success');
+              loadDockerImages(selectedHost.id);
+              loadDiskUsage(selectedHost.id);
+            } else {
+              showToast('Prune failed: ' + (data.error || 'Unknown error'), 'error');
+            }
+          } catch (err) {
+            console.error('Error pruning images:', err);
+            showToast('Network error during image prune', 'error');
+          }
+        }
+
+        function toggleAutoPruneInputs() {
+          const toggle = document.getElementById('autoPruneToggle');
+          const modeSelect = document.getElementById('autoPruneMode');
+          if (modeSelect && toggle) {
+            modeSelect.disabled = !toggle.checked;
+          }
+        }
+
+        async function saveAutoPruneSettings() {
+          if (!selectedHost) return;
+
+          const toggle = document.getElementById('autoPruneToggle');
+          const modeSelect = document.getElementById('autoPruneMode');
+          const saveBtn = document.getElementById('saveAutoPruneBtn');
+
+          if (saveBtn) saveBtn.disabled = true;
+
+          try {
+            const res = await fetch(`/api/hosts/${selectedHost.id}/autoprune`, {
+              method: 'PUT',
+              headers: {
+                ...getAuthHeaders(),
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                enabled: toggle ? toggle.checked : false,
+                mode: modeSelect ? modeSelect.value : 'after-redeploy'
+              })
+            });
+
+            if (res.ok) {
+              showToast('Auto-prune settings saved successfully.', 'success');
+              loadDiskUsage(selectedHost.id);
+            } else {
+              const err = await res.json();
+              showToast('Failed to save settings: ' + (err.error || 'Unknown error'), 'error');
+            }
+          } catch (err) {
+            console.error('Error saving auto-prune:', err);
+            showToast('Network error saving auto-prune settings', 'error');
+          } finally {
+            if (saveBtn) saveBtn.disabled = false;
+          }
         }
       </script>
 </body>
