@@ -916,44 +916,68 @@ function executeHostCommand(host, command, timeoutMs = 20000) {
   });
 }
 
-// Endpoint: Get Host Filesystem and Docker disk usage metrics
-app.get('/api/hosts/:id/disk', authMiddleware, async (req, res) => {
-  const { id } = req.params;
-  const hosts = getHosts();
-  const host = hosts.find(h => h.id === id);
-  if (!host) return res.status(404).json({ error: 'Host not found' });
-
-  const hostRole = host.allowedRole || 'admin';
-  if (hostRole === 'admin' && req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Forbidden. Access restricted to administrator roles.' });
-  }
-
+// Core logic to get disk and Docker storage metrics for any host (or local server)
+async function getHostDiskMetrics(host) {
   let filesystem = null;
 
-  // 1. Filesystem capacity
   if (host.type === 'local') {
+    // 1. Try standard df on Linux (checks host mounts if running inside container)
     try {
-      const targetDir = (host.projectDir && fs.existsSync(host.projectDir)) ? host.projectDir : '.';
-      if (typeof fs.statfsSync === 'function') {
-        const stats = fs.statfsSync(targetDir);
-        const totalBytes = stats.bsize * stats.blocks;
-        const freeBytes = stats.bsize * stats.bfree;
-        const availBytes = stats.bsize * stats.bavail;
-        const usedBytes = Math.max(0, totalBytes - freeBytes);
-        const pct = totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0;
-        filesystem = {
-          total: formatBytes(totalBytes),
-          used: formatBytes(usedBytes),
-          available: formatBytes(availBytes),
-          totalBytes,
-          usedBytes,
-          availableBytes: availBytes,
-          percentUsed: pct,
-          mount: targetDir
-        };
+      const dfLocal = await new Promise((resolve) => {
+        exec('df -Pk /var/run/docker.sock 2>/dev/null || df -Pk /app/data 2>/dev/null || df -Pk /app 2>/dev/null || df -Pk . 2>/dev/null', { timeout: 6000 }, (err, stdout) => {
+          resolve(stdout ? stdout.trim() : '');
+        });
+      });
+      if (dfLocal) {
+        const lines = dfLocal.split('\n').map(l => l.trim()).filter(Boolean);
+        if (lines.length >= 2) {
+          const dataLine = lines[lines.length - 1];
+          const parts = dataLine.split(/\s+/);
+          if (parts.length >= 5) {
+            const totalBytes = (parseInt(parts[1], 10) || 0) * 1024;
+            const usedBytes = (parseInt(parts[2], 10) || 0) * 1024;
+            const availBytes = (parseInt(parts[3], 10) || 0) * 1024;
+            const pct = parseInt(parts[4].replace('%', ''), 10) || (totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0);
+            filesystem = {
+              total: formatBytes(totalBytes),
+              used: formatBytes(usedBytes),
+              available: formatBytes(availBytes),
+              totalBytes,
+              usedBytes,
+              availableBytes: availBytes,
+              percentUsed: pct,
+              mount: parts[5] || '/'
+            };
+          }
+        }
       }
-    } catch (e) {
-      console.error('Local statfs error:', e.message);
+    } catch (e) {}
+
+    // Fallback to fs.statfsSync if df failed (e.g. on Windows)
+    if (!filesystem) {
+      try {
+        const targetDir = (host.projectDir && fs.existsSync(host.projectDir)) ? host.projectDir : '.';
+        if (typeof fs.statfsSync === 'function') {
+          const stats = fs.statfsSync(targetDir);
+          const totalBytes = stats.bsize * stats.blocks;
+          const freeBytes = stats.bsize * stats.bfree;
+          const availBytes = stats.bsize * stats.bavail;
+          const usedBytes = Math.max(0, totalBytes - freeBytes);
+          const pct = totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0;
+          filesystem = {
+            total: formatBytes(totalBytes),
+            used: formatBytes(usedBytes),
+            available: formatBytes(availBytes),
+            totalBytes,
+            usedBytes,
+            availableBytes: availBytes,
+            percentUsed: pct,
+            mount: targetDir
+          };
+        }
+      } catch (e) {
+        console.error('Local statfs error:', e.message);
+      }
     }
   } else {
     // Remote SSH: run df -Pk
@@ -1001,7 +1025,7 @@ app.get('/api/hosts/:id/disk', authMiddleware, async (req, res) => {
         const item = JSON.parse(line);
         const type = (item.Type || '').toLowerCase();
         const obj = {
-          count: String(item.TotalCount || item.Count || '0'),
+          count: String(item.Total || item.TotalCount || item.Count || '0'),
           active: String(item.Active || '0'),
           size: item.Size || '0 B',
           reclaimable: item.Reclaimable || '0 B'
@@ -1051,25 +1075,15 @@ app.get('/api/hosts/:id/disk', authMiddleware, async (req, res) => {
     }
   }
 
-  res.json({
+  return {
     filesystem,
     docker: dockerMetrics,
     autoPrune: host.autoPrune || { enabled: false, mode: 'after-redeploy', lastRun: null }
-  });
-});
+  };
+}
 
-// Endpoint: List all Docker images with in-use status
-app.get('/api/hosts/:id/images', authMiddleware, async (req, res) => {
-  const { id } = req.params;
-  const hosts = getHosts();
-  const host = hosts.find(h => h.id === id);
-  if (!host) return res.status(404).json({ error: 'Host not found' });
-
-  const hostRole = host.allowedRole || 'admin';
-  if (hostRole === 'admin' && req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Forbidden. Access restricted to administrator roles.' });
-  }
-
+// Core logic to get all Docker images for any host
+async function getHostImagesList(host) {
   const [imagesRes, psRes] = await Promise.all([
     executeHostCommand(host, 'docker images --format "{{json .}}" 2>/dev/null', 15000),
     executeHostCommand(host, 'docker ps -a --format "{{json .}}" 2>/dev/null', 10000)
@@ -1148,10 +1162,149 @@ app.get('/api/hosts/:id/images', authMiddleware, async (req, res) => {
     });
   }
 
+  return images;
+}
+
+// Helper to resolve host for system global endpoints
+function resolveTargetHost(req) {
+  const hosts = getHosts();
+  const hostId = req.query.hostId || req.body?.hostId;
+  if (hostId) {
+    const found = hosts.find(h => h.id === hostId);
+    if (found) return found;
+  }
+  // Default to local host or first host
+  const local = hosts.find(h => h.type === 'local');
+  return local || hosts[0] || getDefaultHost();
+}
+
+// GLOBAL ENDPOINT: System Storage & Disk Usage (Global Control)
+app.get('/api/system/storage', authMiddleware, async (req, res) => {
+  const host = resolveTargetHost(req);
+  const data = await getHostDiskMetrics(host);
+  const hosts = getHosts();
+  res.json({
+    ...data,
+    activeHost: { id: host.id, name: host.name, type: host.type },
+    hosts: hosts.map(h => ({ id: h.id, name: h.name, type: h.type }))
+  });
+});
+
+// GLOBAL ENDPOINT: System Docker Images List
+app.get('/api/system/images', authMiddleware, async (req, res) => {
+  const host = resolveTargetHost(req);
+  const images = await getHostImagesList(host);
+  const hosts = getHosts();
+  res.json({
+    images,
+    activeHost: { id: host.id, name: host.name, type: host.type },
+    hosts: hosts.map(h => ({ id: h.id, name: h.name, type: h.type }))
+  });
+});
+
+// GLOBAL ENDPOINT: Delete single image
+app.delete('/api/system/images/:imageId', authMiddleware, requireAdmin, async (req, res) => {
+  const host = resolveTargetHost(req);
+  const { imageId } = req.params;
+  const sanitizedId = (imageId || '').trim();
+  if (!sanitizedId || !/^[a-zA-Z0-9_\-.:/@]+$/.test(sanitizedId)) {
+    return res.status(400).json({ error: 'Invalid Docker image identifier.' });
+  }
+
+  const force = req.query.force === 'true';
+  const cmd = `docker rmi ${force ? '-f ' : ''}${sanitizedId}`;
+
+  const result = await executeHostCommand(host, cmd, 20000);
+  if (result.code !== 0) {
+    const errMsg = (result.stderr || result.stdout || 'Failed to remove image.').trim();
+    const isInUse = errMsg.toLowerCase().includes('being used') || errMsg.toLowerCase().includes('conflict');
+    return res.status(400).json({
+      error: errMsg,
+      isInUse
+    });
+  }
+
+  res.json({
+    success: true,
+    message: `Image ${sanitizedId} deleted successfully.`,
+    output: result.stdout.trim()
+  });
+});
+
+// GLOBAL ENDPOINT: Prune Docker images
+app.post('/api/system/images/prune', authMiddleware, requireAdmin, async (req, res) => {
+  const host = resolveTargetHost(req);
+  const pruneAll = req.query.all === 'true';
+  const cmd = pruneAll ? 'docker image prune -a -f' : 'docker image prune -f';
+
+  const result = await executeHostCommand(host, cmd, 30000);
+  if (result.code !== 0) {
+    return res.status(400).json({
+      error: (result.stderr || result.stdout || 'Failed to prune images.').trim()
+    });
+  }
+
+  const hosts = getHosts();
+  const idx = hosts.findIndex(h => h.id === host.id);
+  if (idx !== -1) {
+    hosts[idx].autoPrune = {
+      ...(hosts[idx].autoPrune || { enabled: false, mode: 'after-redeploy' }),
+      lastRun: new Date().toISOString()
+    };
+    saveHosts(hosts);
+  }
+
+  res.json({
+    success: true,
+    message: 'Images pruned successfully.',
+    output: (result.stdout || 'No unused images to remove.').trim()
+  });
+});
+
+// GLOBAL ENDPOINT: Configure auto-prune
+app.put('/api/system/autoprune', authMiddleware, requireAdmin, (req, res) => {
+  const host = resolveTargetHost(req);
+  const { enabled, mode } = req.body;
+
+  let hosts = getHosts();
+  const idx = hosts.findIndex(h => h.id === host.id);
+  if (idx === -1) return res.status(404).json({ error: 'Host not found' });
+
+  const validModes = ['after-redeploy', 'daily', 'weekly'];
+  const chosenMode = validModes.includes(mode) ? mode : 'after-redeploy';
+
+  hosts[idx].autoPrune = {
+    enabled: Boolean(enabled),
+    mode: chosenMode,
+    lastRun: hosts[idx].autoPrune?.lastRun || null
+  };
+
+  saveHosts(hosts);
+  res.json({
+    success: true,
+    autoPrune: hosts[idx].autoPrune
+  });
+});
+
+// Per-host routes (backwards compatibility)
+app.get('/api/hosts/:id/disk', authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const hosts = getHosts();
+  const host = hosts.find(h => h.id === id);
+  if (!host) return res.status(404).json({ error: 'Host not found' });
+  const data = await getHostDiskMetrics(host);
+  res.json(data);
+});
+
+app.get('/api/hosts/:id/images', authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const hosts = getHosts();
+  const host = hosts.find(h => h.id === id);
+  if (!host) return res.status(404).json({ error: 'Host not found' });
+  const images = await getHostImagesList(host);
   res.json({ images });
 });
 
-// Endpoint: Delete a single Docker image
 app.delete('/api/hosts/:id/images/:imageId', authMiddleware, requireAdmin, async (req, res) => {
   const { id, imageId } = req.params;
   const hosts = getHosts();
@@ -1183,7 +1336,6 @@ app.delete('/api/hosts/:id/images/:imageId', authMiddleware, requireAdmin, async
   });
 });
 
-// Endpoint: Prune unused/dangling Docker images
 app.post('/api/hosts/:id/images/prune', authMiddleware, requireAdmin, async (req, res) => {
   const { id } = req.params;
   const hosts = getHosts();
@@ -1200,7 +1352,6 @@ app.post('/api/hosts/:id/images/prune', authMiddleware, requireAdmin, async (req
     });
   }
 
-  // Update lastRun timestamp
   const idx = hosts.findIndex(h => h.id === id);
   if (idx !== -1) {
     hosts[idx].autoPrune = {
@@ -1217,7 +1368,6 @@ app.post('/api/hosts/:id/images/prune', authMiddleware, requireAdmin, async (req
   });
 });
 
-// Endpoint: Configure auto-prune settings for a host
 app.put('/api/hosts/:id/autoprune', authMiddleware, requireAdmin, (req, res) => {
   const { id } = req.params;
   const { enabled, mode } = req.body;

@@ -1265,6 +1265,15 @@
         <span id="dockerSocketText" style="color:var(--text-muted);">Docker Connection Probe...</span>
       </div>
 
+      <!-- Global Storage & Docker Images Control Center Button -->
+      <button class="btn btn-secondary font-btn" id="globalStorageHeaderBtn" onclick="openGlobalStorageModal()"
+        style="padding: 6px 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 8px;"
+        title="Open System Storage & Docker Images Control Center">
+        <span>💾</span>
+        <span>Storage</span>
+        <span id="globalStorageHeaderPill" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border-radius: 10px; padding: 2px 7px; font-size: 11px; font-weight: 600;">--</span>
+      </button>
+
       <!-- Developer Simulator Selector -->
       <div class="dev-sim-bar" id="devSimControl" style="display: none; align-items: center; gap: 8px;">
         <span class="dev-sim-title">Dev Role:</span>
@@ -1308,6 +1317,19 @@
           <span style="font-size: 14px; font-weight: bold;">+</span> Add Host
         </button>
       </div>
+
+      <!-- Global Storage & Images Nav Item in Sidebar -->
+      <div style="padding: 8px 12px 10px 12px; border-bottom: 1px solid var(--border-color);">
+        <button class="btn btn-secondary font-btn" id="sidebarStorageBtn" onclick="openGlobalStorageModal()"
+          style="width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; font-size: 12px; font-weight: 500; background: rgba(30, 41, 59, 0.7); border: 1px solid var(--border-color); border-radius: 8px;">
+          <span style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 14px;">💾</span>
+            <span>Storage & Images</span>
+          </span>
+          <span id="sidebarDiskBadge" style="font-size: 11px; padding: 2px 7px; border-radius: 10px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; font-weight: 600;">--</span>
+        </button>
+      </div>
+
       <div class="sidebar-search-container">
         <input type="text" id="hostSearchInput" class="sidebar-search-input" placeholder="🔍 Search environments..." oninput="filterHosts(this.value)">
       </div>
@@ -1354,15 +1376,6 @@
                 📜 View Change Log
               </button>
             </div>
-            <!-- Live Disk Usage Indicator Bar in Host Header -->
-            <div id="diskUsageBar" style="display: none; margin-top: 8px; align-items: center; gap: 10px; font-size: 12px; flex-wrap: wrap;">
-              <span id="diskBadge" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;" onclick="switchPanelTab('storage')" title="Click to view disk & storage breakdown">
-                💾 Disk: <span id="diskText">Loading...</span>
-              </span>
-              <div style="width: 100px; height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 3px; overflow: hidden; cursor: pointer;" onclick="switchPanelTab('storage')" title="Click to view disk & storage breakdown">
-                <div id="diskProgressBar" style="width: 0%; height: 100%; background: #60a5fa; transition: width 0.3s ease;"></div>
-              </div>
-            </div>
           </div>
           <button class="btn btn-secondary" onclick="checkActiveHostStatus()">
             🔄 Ping Host
@@ -1389,10 +1402,6 @@
           <button class="btn btn-secondary" id="logsBtn" onclick="runAction('logs')">
             📝 View Logs
           </button>
-          <!-- Images and Disk Storage button -->
-          <button class="btn btn-secondary" id="manageImagesBtn" onclick="switchPanelTab('images')" title="Inspect Docker images and disk space">
-            🖼️ Images & Disk
-          </button>
           <!-- .env file viewer button -->
           <button class="btn btn-secondary" id="manageEnvBtn" onclick="viewEnvFile()" style="display: none;">
             📝 Manage .env
@@ -1411,159 +1420,19 @@
           </button>
         </div>
 
-        <!-- Unified Containers, Images & Storage Panel -->
+        <!-- Deployed Containers List Panel -->
         <div class="containers-card" id="containersSection" style="display: none;">
-          <!-- Panel Navigation Tabs -->
-          <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
-            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-              <button class="panel-tab-btn active" id="tabContainersBtn" onclick="switchPanelTab('containers')">
-                🐳 Containers <span id="containersCountPill" class="tab-pill">0</span>
-              </button>
-              <button class="panel-tab-btn" id="tabImagesBtn" onclick="switchPanelTab('images')">
-                🖼️ Docker Images <span id="imagesCountPill" class="tab-pill">0</span>
-              </button>
-              <button class="panel-tab-btn" id="tabStorageBtn" onclick="switchPanelTab('storage')">
-                💾 Disk & Storage
-              </button>
-            </div>
-            <div style="display: flex; gap: 8px; align-items: center;" id="tabActionControls">
-              <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px;" onclick="refreshActiveTab()">
-                🔄 Refresh
-              </button>
-            </div>
+          <div class="section-title">
+            <span style="display: flex; align-items: center; gap: 8px;">
+              🐳 Deployed Containers
+              <span id="containersCountPill" class="tab-pill">0</span>
+            </span>
+            <button class="btn btn-secondary" onclick="loadContainers(selectedHost ? selectedHost.id : '')" style="padding: 4px 10px; font-size: 12px;">
+              🔄 Refresh
+            </button>
           </div>
-
-          <!-- Tab 1: Containers List -->
-          <div id="tabContentContainers">
-            <div id="containersList" class="container-list-grid">
-              <!-- Rendered containers dynamically -->
-            </div>
-          </div>
-
-          <!-- Tab 2: Docker Images List -->
-          <div id="tabContentImages" style="display: none;">
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap;">
-              <div style="display: flex; gap: 10px; align-items: center; flex: 1; min-width: 240px; flex-wrap: wrap;">
-                <input type="text" id="imageSearchInput" placeholder="🔍 Search images by repository or tag..." 
-                  style="flex: 1; min-width: 180px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 7px 12px; color: var(--text-main); font-size: 13px;"
-                  oninput="renderDockerImages()">
-                <div style="display: flex; gap: 4px;">
-                  <button class="filter-pill-btn active" id="imgFilterAll" onclick="setImageFilter('all')">All</button>
-                  <button class="filter-pill-btn" id="imgFilterInUse" onclick="setImageFilter('inuse')">In Use</button>
-                  <button class="filter-pill-btn" id="imgFilterUnused" onclick="setImageFilter('unused')">Unused</button>
-                </div>
-              </div>
-              <button class="btn btn-secondary" onclick="pruneDockerImages(false)" style="padding: 6px 14px; font-size: 12px;" title="Remove all dangling images">
-                🧹 Prune Dangling Images
-              </button>
-            </div>
-            <div id="imagesList" class="container-list-grid">
-              <!-- Rendered images dynamically -->
-            </div>
-          </div>
-
-          <!-- Tab 3: Disk & Storage Breakdown -->
-          <div id="tabContentStorage" style="display: none;">
-            <div style="display: flex; flex-direction: column; gap: 20px;">
-              <!-- Host Filesystem Card -->
-              <div style="background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 8px; padding: 18px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
-                  <div style="font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px;">
-                    🖥️ Host Filesystem Storage (<span id="fsMountPoint" style="font-family: 'Fira Code', monospace; font-size: 13px; color: var(--accent-color);">/</span>)
-                  </div>
-                  <div id="fsPercentBadge" style="font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 12px; background: rgba(59, 130, 246, 0.15); color: #60a5fa;">
-                    --% used
-                  </div>
-                </div>
-                <!-- Progress bar -->
-                <div style="width: 100%; height: 10px; background: rgba(255, 255, 255, 0.08); border-radius: 5px; overflow: hidden; margin-bottom: 10px;">
-                  <div id="fsProgressBar" style="width: 0%; height: 100%; background: #60a5fa; transition: width 0.4s ease;"></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); flex-wrap: wrap; gap: 8px;">
-                  <div>Used: <strong id="fsUsedText" style="color: var(--text-main);">--</strong></div>
-                  <div>Available: <strong id="fsAvailText" style="color: #10b981;">--</strong></div>
-                  <div>Total: <strong id="fsTotalText" style="color: var(--text-main);">--</strong></div>
-                </div>
-              </div>
-
-              <!-- Docker Subsystem Storage Breakdown Grid -->
-              <div>
-                <div style="font-weight: 600; font-size: 14px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
-                  🐳 Docker Engine Disk Usage (docker system df)
-                </div>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px;">
-                  <div class="storage-stat-card">
-                    <div class="storage-stat-label">
-                      <span>🖼️ Images</span>
-                      <span id="dockerImgCount" class="tab-pill">0</span>
-                    </div>
-                    <div class="storage-stat-val" id="dockerImgSize">0 B</div>
-                    <div class="storage-stat-reclaim" id="dockerImgReclaim">Reclaimable: 0 B</div>
-                  </div>
-                  <div class="storage-stat-card">
-                    <div class="storage-stat-label">
-                      <span>📦 Containers</span>
-                      <span id="dockerContainerCount" class="tab-pill">0</span>
-                    </div>
-                    <div class="storage-stat-val" id="dockerContainerSize">0 B</div>
-                    <div class="storage-stat-reclaim" id="dockerContainerReclaim">Reclaimable: 0 B</div>
-                  </div>
-                  <div class="storage-stat-card">
-                    <div class="storage-stat-label">
-                      <span>💾 Local Volumes</span>
-                      <span id="dockerVolCount" class="tab-pill">0</span>
-                    </div>
-                    <div class="storage-stat-val" id="dockerVolSize">0 B</div>
-                    <div class="storage-stat-reclaim" id="dockerVolReclaim">Reclaimable: 0 B</div>
-                  </div>
-                  <div class="storage-stat-card">
-                    <div class="storage-stat-label">
-                      <span>🔨 Build Cache</span>
-                      <span id="dockerCacheCount" class="tab-pill">0</span>
-                    </div>
-                    <div class="storage-stat-val" id="dockerCacheSize">0 B</div>
-                    <div class="storage-stat-reclaim" id="dockerCacheReclaim">Reclaimable: 0 B</div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Auto-Prune Configuration Card -->
-              <div style="background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 8px; padding: 18px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
-                  <div style="font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px;">
-                    ⚙️ Auto-Prune Configuration
-                  </div>
-                  <div style="display: flex; align-items: center; gap: 10px;">
-                    <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; user-select: none;">
-                      <input type="checkbox" id="autoPruneToggle" onchange="toggleAutoPruneInputs()" style="width: 16px; height: 16px; accent-color: var(--accent-color);">
-                      <span>Enable Auto-Prune</span>
-                    </label>
-                  </div>
-                </div>
-                <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px; line-height: 1.5;">
-                  Automatically clean up dangling and unreferenced Docker images to keep server disk space optimized.
-                </div>
-                <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-                  <div style="display: flex; align-items: center; gap: 8px;">
-                    <label for="autoPruneMode" style="font-size: 12px; color: var(--text-muted);">Trigger Frequency:</label>
-                    <select id="autoPruneMode" style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 12px; color: var(--text-main); font-size: 13px;">
-                      <option value="after-redeploy">After Every Redeploy (Recommended)</option>
-                      <option value="daily">Daily at Midnight</option>
-                      <option value="weekly">Weekly (Sundays)</option>
-                    </select>
-                  </div>
-                  <button class="btn btn-primary" id="saveAutoPruneBtn" onclick="saveAutoPruneSettings()" style="padding: 6px 14px; font-size: 12px;">
-                    💾 Save Auto-Prune Settings
-                  </button>
-                  <button class="btn btn-secondary" onclick="pruneDockerImages(false)" style="padding: 6px 14px; font-size: 12px;">
-                    🧹 Run Prune Now
-                  </button>
-                </div>
-                <div id="autoPruneLastRun" style="font-size: 11px; color: var(--text-muted); margin-top: 10px; font-family: 'Fira Code', monospace;">
-                  Last Pruned: Never
-                </div>
-              </div>
-            </div>
+          <div id="containersList" class="container-list-grid">
+            <!-- Rendered containers dynamically -->
           </div>
         </div>
 
@@ -1829,6 +1698,172 @@
           <button class="btn btn-secondary" id="confirmCancelBtn" onclick="closeConfirmModal(false)">Cancel</button>
           <button class="btn btn-danger" id="confirmOkBtn" onclick="closeConfirmModal(true)">Confirm</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Global System Storage & Docker Images Control Center Modal -->
+  <div class="modal-overlay" id="storageModalOverlay" onclick="if(event.target===this)closeGlobalStorageModal()">
+    <div class="modal-container" style="width: 960px; max-width: 95vw; max-height: 90vh; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <h3 class="modal-title" style="display: flex; align-items: center; gap: 8px; margin: 0;">
+            <span>💾</span> System Storage & Docker Images
+          </h3>
+          <!-- Target Host Dropdown inside modal if multiple hosts exist -->
+          <div style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; margin-left: 8px;">
+            <label for="globalStorageHostSelect" style="color: var(--text-muted);">Target Host:</label>
+            <select id="globalStorageHostSelect" onchange="onGlobalStorageHostChange(this.value)" style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 8px; color: var(--text-main); font-size: 12px; cursor: pointer;">
+              <!-- Dynamically populated -->
+            </select>
+          </div>
+        </div>
+        <button class="close-btn" onclick="closeGlobalStorageModal()">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px;">
+        <!-- Top Quick Action Bar -->
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; background: var(--bg-tertiary); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color);">
+          <div style="font-size: 13px; color: var(--text-muted);">
+            Manage Docker system space, inspect images, delete individual images, and configure auto-pruning.
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn btn-secondary font-btn" onclick="refreshGlobalStorageModal()" style="padding: 5px 12px; font-size: 12px;">
+              🔄 Refresh Storage
+            </button>
+            <button class="btn btn-secondary font-btn" onclick="pruneGlobalImages(false)" style="padding: 5px 12px; font-size: 12px;" title="Remove dangling images (<none>:<none>)">
+              🧹 Prune Dangling
+            </button>
+            <button class="btn btn-danger font-btn" onclick="pruneGlobalImages(true)" style="padding: 5px 12px; font-size: 12px;" title="Remove all unused Docker images">
+              ⚠️ Prune All Unused
+            </button>
+          </div>
+        </div>
+
+        <!-- 1. Host Filesystem Storage Card -->
+        <div style="background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 8px; padding: 18px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+            <div style="font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+              🖥️ Host Filesystem Storage (<span id="globalFsMountPoint" style="font-family: 'Fira Code', monospace; font-size: 12px; color: var(--accent-color);">/</span>)
+            </div>
+            <div id="globalFsPercentBadge" style="font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 12px; background: rgba(59, 130, 246, 0.15); color: #60a5fa;">
+              --% used
+            </div>
+          </div>
+          <!-- Progress bar -->
+          <div style="width: 100%; height: 10px; background: rgba(255, 255, 255, 0.08); border-radius: 5px; overflow: hidden; margin-bottom: 10px;">
+            <div id="globalFsProgressBar" style="width: 0%; height: 100%; background: #60a5fa; transition: width 0.4s ease;"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); flex-wrap: wrap; gap: 8px;">
+            <div>Used: <strong id="globalFsUsedText" style="color: var(--text-main);">--</strong></div>
+            <div>Available: <strong id="globalFsAvailText" style="color: #10b981;">--</strong></div>
+            <div>Total: <strong id="globalFsTotalText" style="color: var(--text-main);">--</strong></div>
+          </div>
+        </div>
+
+        <!-- 2. Docker Subsystem Storage Breakdown Grid -->
+        <div>
+          <div style="font-weight: 600; font-size: 14px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+            🐳 Docker Engine Subsystem Breakdown (<code style="font-size: 11px; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">docker system df</code>)
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px;">
+            <div class="storage-stat-card">
+              <div class="storage-stat-label">
+                <span>🖼️ Images</span>
+                <span id="globalDockerImgCount" class="tab-pill">0</span>
+              </div>
+              <div class="storage-stat-val" id="globalDockerImgSize">0 B</div>
+              <div class="storage-stat-reclaim" id="globalDockerImgReclaim">Reclaimable: 0 B</div>
+            </div>
+            <div class="storage-stat-card">
+              <div class="storage-stat-label">
+                <span>📦 Containers</span>
+                <span id="globalDockerContainerCount" class="tab-pill">0</span>
+              </div>
+              <div class="storage-stat-val" id="globalDockerContainerSize">0 B</div>
+              <div class="storage-stat-reclaim" id="globalDockerContainerReclaim">Reclaimable: 0 B</div>
+            </div>
+            <div class="storage-stat-card">
+              <div class="storage-stat-label">
+                <span>💾 Local Volumes</span>
+                <span id="globalDockerVolCount" class="tab-pill">0</span>
+              </div>
+              <div class="storage-stat-val" id="globalDockerVolSize">0 B</div>
+              <div class="storage-stat-reclaim" id="globalDockerVolReclaim">Reclaimable: 0 B</div>
+            </div>
+            <div class="storage-stat-card">
+              <div class="storage-stat-label">
+                <span>🔨 Build Cache</span>
+                <span id="globalDockerCacheCount" class="tab-pill">0</span>
+              </div>
+              <div class="storage-stat-val" id="globalDockerCacheSize">0 B</div>
+              <div class="storage-stat-reclaim" id="globalDockerCacheReclaim">Reclaimable: 0 B</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Docker Images Management (Search, Filter, Single Deletion) -->
+        <div style="background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 8px; padding: 18px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+            <div style="font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+              <span>🖼️ Docker Images List</span>
+              <span id="globalImagesCountBadge" class="tab-pill">0</span>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center; flex: 1; justify-content: flex-end; min-width: 260px; flex-wrap: wrap;">
+              <input type="text" id="globalImageSearchInput" placeholder="🔍 Search images by repo, tag, or ID..." 
+                style="min-width: 200px; max-width: 300px; flex: 1; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 12px; color: var(--text-main); font-size: 12px;"
+                oninput="renderGlobalImages()">
+              <div style="display: flex; gap: 4px;">
+                <button class="filter-pill-btn active" id="globalImgFilterAll" onclick="setGlobalImageFilter('all')">All</button>
+                <button class="filter-pill-btn" id="globalImgFilterInUse" onclick="setGlobalImageFilter('inuse')">In Use</button>
+                <button class="filter-pill-btn" id="globalImgFilterUnused" onclick="setGlobalImageFilter('unused')">Unused</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="globalImagesList" class="container-list-grid" style="max-height: 380px; overflow-y: auto; padding-right: 4px;">
+            <!-- Rendered global images dynamically -->
+          </div>
+        </div>
+
+        <!-- 4. Auto-Prune Configuration Card -->
+        <div style="background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 8px; padding: 18px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+            <div style="font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+              ⚙️ Auto-Prune Configuration
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; user-select: none;">
+                <input type="checkbox" id="globalAutoPruneToggle" onchange="toggleGlobalAutoPruneInputs()" style="width: 16px; height: 16px; accent-color: var(--accent-color);">
+                <span>Enable Auto-Prune</span>
+              </label>
+            </div>
+          </div>
+          <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px; line-height: 1.5;">
+            Automatically clean up dangling and unreferenced Docker images to keep server disk space optimized.
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label for="globalAutoPruneMode" style="font-size: 12px; color: var(--text-muted);">Trigger Frequency:</label>
+              <select id="globalAutoPruneMode" style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 12px; color: var(--text-main); font-size: 12px;">
+                <option value="after-redeploy">After Every Redeploy (Recommended)</option>
+                <option value="daily">Daily at Midnight</option>
+                <option value="weekly">Weekly (Sundays)</option>
+              </select>
+            </div>
+            <button class="btn btn-primary font-btn" id="globalSaveAutoPruneBtn" onclick="saveGlobalAutoPruneSettings()" style="padding: 6px 14px; font-size: 12px;">
+              💾 Save Auto-Prune Settings
+            </button>
+          </div>
+          <div id="globalAutoPruneLastRun" style="font-size: 11px; color: var(--text-muted); margin-top: 10px; font-family: 'Fira Code', monospace;">
+            Last Pruned: Never
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <div style="font-size: 12px; color: var(--text-muted);" id="globalStorageStatusText">Storage metrics standby</div>
+        <button class="btn btn-secondary font-btn" onclick="closeGlobalStorageModal()">Close</button>
       </div>
     </div>
   </div>
@@ -2101,6 +2136,7 @@
           try { await fetchAuthStatus(); } catch (e) { console.warn('Auth status error:', e); }
           try { await loadHosts(); } catch (e) { console.warn('Load hosts error:', e); }
           try { await checkDockerSocketStatus(); } catch (e) { console.warn('Docker socket status error:', e); }
+          try { initGlobalStorageMonitoring(); } catch (e) { console.warn('Global storage monitoring error:', e); }
 
           window.addEventListener('resize', () => {
             try { if (fitAddon) fitAddon.fit(); } catch (e) { }
@@ -2529,8 +2565,6 @@
         function selectHost(host) {
           selectedHost = host;
           activeChangelog = [];
-          cachedImages = [];
-          cachedDiskData = null;
           hideForceButtons();
           renderHostList();
 
@@ -2541,10 +2575,8 @@
             try { if (fitAddon) fitAddon.fit(); } catch (e) { }
           }, 50);
 
-          // Load active project containers status list, disk metrics, docker images, and git update status
+          // Load active project containers status list and git update status
           loadContainers(host.id);
-          loadDiskUsage(host.id);
-          loadDockerImages(host.id);
           fetchGitStatus(host.id);
 
           document.getElementById('selectedHostName').textContent = host.name;
@@ -2618,11 +2650,7 @@
           term.write(`\r\nPinging Host connection: ${selectedHost.name}...\r\n`);
 
           await pingHostStatus(selectedHost.id);
-          await Promise.all([
-            loadContainers(selectedHost.id),
-            loadDiskUsage(selectedHost.id),
-            loadDockerImages(selectedHost.id)
-          ]);
+          await loadContainers(selectedHost.id);
 
           term.write(`Ping complete. Status refreshed in Sidebar.\r\n\r\n`);
           termStatus.textContent = 'TERMINAL: STANDBY';
@@ -2829,8 +2857,8 @@
             wsConn = null;
             pingHostStatus(selectedHost.id);
             loadContainers(selectedHost.id);
-            loadDiskUsage(selectedHost.id);
-            loadDockerImages(selectedHost.id);
+            fetchGitStatus(selectedHost.id);
+            initGlobalStorageMonitoring();
           };
 
           wsConn.onerror = (error) => {
@@ -3392,84 +3420,123 @@
           return links;
         }
 
-        // --- Panel Tabs & Storage/Image Management ---
-        let currentPanelTab = 'containers';
-        let cachedImages = [];
-        let cachedDiskData = null;
-        let currentImageFilter = 'all';
+        // =========================================================================
+        // --- GLOBAL SYSTEM STORAGE & DOCKER IMAGES CONTROL CENTER ---
+        // =========================================================================
+        let globalStorageData = null;
+        let globalImages = [];
+        let globalImageFilter = 'all';
+        let globalStorageTargetHostId = null;
+        let globalStorageTimer = null;
 
-        function switchPanelTab(tabName) {
-          currentPanelTab = tabName;
-          const tabContainersBtn = document.getElementById('tabContainersBtn');
-          const tabImagesBtn = document.getElementById('tabImagesBtn');
-          const tabStorageBtn = document.getElementById('tabStorageBtn');
-          const tabContentContainers = document.getElementById('tabContentContainers');
-          const tabContentImages = document.getElementById('tabContentImages');
-          const tabContentStorage = document.getElementById('tabContentStorage');
-
-          if (tabContainersBtn) tabContainersBtn.className = 'panel-tab-btn ' + (tabName === 'containers' ? 'active' : '');
-          if (tabImagesBtn) tabImagesBtn.className = 'panel-tab-btn ' + (tabName === 'images' ? 'active' : '');
-          if (tabStorageBtn) tabStorageBtn.className = 'panel-tab-btn ' + (tabName === 'storage' ? 'active' : '');
-
-          if (tabContentContainers) tabContentContainers.style.display = tabName === 'containers' ? 'block' : 'none';
-          if (tabContentImages) tabContentImages.style.display = tabName === 'images' ? 'block' : 'none';
-          if (tabContentStorage) tabContentStorage.style.display = tabName === 'storage' ? 'block' : 'none';
-
-          if (!selectedHost) return;
-
-          if (tabName === 'images') {
-            loadDockerImages(selectedHost.id);
-          } else if (tabName === 'storage') {
-            loadDiskUsage(selectedHost.id);
+        // Initialize background monitoring for header pill & sidebar badge
+        function initGlobalStorageMonitoring() {
+          fetchGlobalStorageSummary();
+          if (!globalStorageTimer) {
+            globalStorageTimer = setInterval(fetchGlobalStorageSummary, 45000);
           }
         }
 
-        function refreshActiveTab() {
-          if (!selectedHost) return;
-          if (currentPanelTab === 'containers') {
-            loadContainers(selectedHost.id);
-          } else if (currentPanelTab === 'images') {
-            loadDockerImages(selectedHost.id);
-          } else if (currentPanelTab === 'storage') {
-            loadDiskUsage(selectedHost.id);
-          }
-        }
-
-        async function loadDiskUsage(hostId) {
-          if (!hostId) return;
-          const diskBar = document.getElementById('diskUsageBar');
-          const diskText = document.getElementById('diskText');
-          const diskProg = document.getElementById('diskProgressBar');
-
+        async function fetchGlobalStorageSummary() {
           try {
-            const res = await fetch(`/api/hosts/${hostId}/disk`, { headers: getAuthHeaders() });
+            const res = await fetch('/api/system/storage', { headers: getAuthHeaders() });
             if (!res.ok) return;
             const data = await res.json();
-            cachedDiskData = data;
+            updateGlobalStorageIndicators(data);
+          } catch (err) {
+            console.debug('Background storage ping error:', err);
+          }
+        }
 
-            // 1. Host Header Disk Badge
+        function updateGlobalStorageIndicators(data) {
+          if (!data || !data.filesystem) return;
+          const fs = data.filesystem;
+          const pill = document.getElementById('globalStorageHeaderPill');
+          const sidebarBadge = document.getElementById('sidebarDiskBadge');
+
+          const color = fs.percentUsed > 85 ? '#ef4444' : (fs.percentUsed > 70 ? '#f59e0b' : '#60a5fa');
+          const bg = fs.percentUsed > 85 ? 'rgba(239, 68, 68, 0.2)' : (fs.percentUsed > 70 ? 'rgba(245, 158, 11, 0.2)' : 'rgba(59, 130, 246, 0.2)');
+
+          if (pill) {
+            pill.textContent = `${fs.percentUsed}% (${fs.available} free)`;
+            pill.style.color = color;
+            pill.style.background = bg;
+          }
+          if (sidebarBadge) {
+            sidebarBadge.textContent = `${fs.percentUsed}% (${fs.available} free)`;
+            sidebarBadge.style.color = color;
+            sidebarBadge.style.background = bg;
+          }
+        }
+
+        // Open Global Storage & Docker Images Modal
+        function openGlobalStorageModal() {
+          const modal = document.getElementById('storageModalOverlay');
+          if (!modal) return;
+
+          // Populate Host Select Dropdown
+          const hostSelect = document.getElementById('globalStorageHostSelect');
+          if (hostSelect) {
+            hostSelect.innerHTML = '';
+            hosts.forEach(h => {
+              const opt = document.createElement('option');
+              opt.value = h.id;
+              opt.textContent = `${h.name} (${h.type === 'local' ? 'Local' : h.ip})`;
+              hostSelect.appendChild(opt);
+            });
+
+            // Set default selected host (prefer active host, else local, else first)
+            const activeId = selectedHost ? selectedHost.id : (hosts.find(h => h.type === 'local')?.id || hosts[0]?.id || '');
+            if (activeId) {
+              hostSelect.value = activeId;
+              globalStorageTargetHostId = activeId;
+            }
+          }
+
+          modal.style.display = 'flex';
+          refreshGlobalStorageModal();
+        }
+
+        function closeGlobalStorageModal() {
+          const modal = document.getElementById('storageModalOverlay');
+          if (modal) modal.style.display = 'none';
+        }
+
+        function onGlobalStorageHostChange(hostId) {
+          globalStorageTargetHostId = hostId;
+          refreshGlobalStorageModal();
+        }
+
+        function refreshGlobalStorageModal() {
+          const targetHostId = globalStorageTargetHostId;
+          loadGlobalStorageData(targetHostId);
+          loadGlobalImagesData(targetHostId);
+        }
+
+        async function loadGlobalStorageData(hostId) {
+          const statusEl = document.getElementById('globalStorageStatusText');
+          if (statusEl) statusEl.textContent = 'Refreshing storage metrics...';
+
+          try {
+            const url = hostId ? `/api/system/storage?hostId=${encodeURIComponent(hostId)}` : '/api/system/storage';
+            const res = await fetch(url, { headers: getAuthHeaders() });
+            if (!res.ok) {
+              if (statusEl) statusEl.textContent = 'Failed to fetch storage data.';
+              return;
+            }
+            const data = await res.json();
+            globalStorageData = data;
+            updateGlobalStorageIndicators(data);
+
+            // 1. Filesystem Metrics Card
             if (data.filesystem) {
               const fs = data.filesystem;
-              if (diskBar) diskBar.style.display = 'inline-flex';
-              if (diskText) diskText.textContent = `${fs.used} / ${fs.total} (${fs.percentUsed}%)`;
-              if (diskProg) {
-                diskProg.style.width = `${Math.min(100, fs.percentUsed)}%`;
-                if (fs.percentUsed > 85) {
-                  diskProg.style.background = '#ef4444';
-                } else if (fs.percentUsed > 70) {
-                  diskProg.style.background = '#f59e0b';
-                } else {
-                  diskProg.style.background = '#60a5fa';
-                }
-              }
-
-              // Storage Tab Filesystem metrics
-              const fsMount = document.getElementById('fsMountPoint');
-              const fsBadge = document.getElementById('fsPercentBadge');
-              const fsProgBar = document.getElementById('fsProgressBar');
-              const fsUsed = document.getElementById('fsUsedText');
-              const fsAvail = document.getElementById('fsAvailText');
-              const fsTotal = document.getElementById('fsTotalText');
+              const fsMount = document.getElementById('globalFsMountPoint');
+              const fsBadge = document.getElementById('globalFsPercentBadge');
+              const fsProg = document.getElementById('globalFsProgressBar');
+              const fsUsed = document.getElementById('globalFsUsedText');
+              const fsAvail = document.getElementById('globalFsAvailText');
+              const fsTotal = document.getElementById('globalFsTotalText');
 
               if (fsMount) fsMount.textContent = fs.mount || '/';
               if (fsBadge) {
@@ -3477,24 +3544,22 @@
                 fsBadge.style.color = fs.percentUsed > 85 ? '#ef4444' : (fs.percentUsed > 70 ? '#f59e0b' : '#60a5fa');
                 fsBadge.style.background = fs.percentUsed > 85 ? 'rgba(239, 68, 68, 0.15)' : (fs.percentUsed > 70 ? 'rgba(245, 158, 11, 0.15)' : 'rgba(59, 130, 246, 0.15)');
               }
-              if (fsProgBar) {
-                fsProgBar.style.width = `${Math.min(100, fs.percentUsed)}%`;
-                fsProgBar.style.background = fs.percentUsed > 85 ? '#ef4444' : (fs.percentUsed > 70 ? '#f59e0b' : '#60a5fa');
+              if (fsProg) {
+                fsProg.style.width = `${Math.min(100, fs.percentUsed)}%`;
+                fsProg.style.background = fs.percentUsed > 85 ? '#ef4444' : (fs.percentUsed > 70 ? '#f59e0b' : '#60a5fa');
               }
               if (fsUsed) fsUsed.textContent = fs.used;
               if (fsAvail) fsAvail.textContent = fs.available;
               if (fsTotal) fsTotal.textContent = fs.total;
-            } else {
-              if (diskBar) diskBar.style.display = 'none';
             }
 
-            // 2. Docker Storage Breakdown
+            // 2. Docker Subsystem Breakdown Cards
             if (data.docker) {
               const d = data.docker;
               const setCard = (prefix, obj) => {
-                const count = document.getElementById(`docker${prefix}Count`);
-                const size = document.getElementById(`docker${prefix}Size`);
-                const reclaim = document.getElementById(`docker${prefix}Reclaim`);
+                const count = document.getElementById(`globalDocker${prefix}Count`);
+                const size = document.getElementById(`globalDocker${prefix}Size`);
+                const reclaim = document.getElementById(`globalDocker${prefix}Reclaim`);
                 if (count) count.textContent = obj.count || '0';
                 if (size) size.textContent = obj.size || '0 B';
                 if (reclaim) reclaim.textContent = `Reclaimable: ${obj.reclaimable || '0 B'}`;
@@ -3507,68 +3572,71 @@
 
             // 3. Auto-Prune Configuration Card
             if (data.autoPrune) {
-              const apToggle = document.getElementById('autoPruneToggle');
-              const apMode = document.getElementById('autoPruneMode');
-              const apLast = document.getElementById('autoPruneLastRun');
-              if (apToggle) apToggle.checked = Boolean(data.autoPrune.enabled);
-              if (apMode && data.autoPrune.mode) apMode.value = data.autoPrune.mode;
-              if (apLast) {
+              const toggle = document.getElementById('globalAutoPruneToggle');
+              const mode = document.getElementById('globalAutoPruneMode');
+              const last = document.getElementById('globalAutoPruneLastRun');
+              if (toggle) toggle.checked = Boolean(data.autoPrune.enabled);
+              if (mode && data.autoPrune.mode) mode.value = data.autoPrune.mode;
+              if (last) {
                 if (data.autoPrune.lastRun) {
                   const dt = new Date(data.autoPrune.lastRun);
-                  apLast.textContent = `Last Pruned: ${dt.toLocaleDateString()} ${dt.toLocaleTimeString()}`;
+                  last.textContent = `Last Pruned: ${dt.toLocaleDateString()} ${dt.toLocaleTimeString()}`;
                 } else {
-                  apLast.textContent = 'Last Pruned: Never';
+                  last.textContent = 'Last Pruned: Never';
                 }
               }
             }
+
+            if (statusEl) statusEl.textContent = `Updated: ${new Date().toLocaleTimeString()}`;
           } catch (err) {
-            console.error('Error fetching disk data:', err);
+            console.error('Error fetching global storage data:', err);
+            if (statusEl) statusEl.textContent = 'Error connecting to storage metrics.';
           }
         }
 
-        async function loadDockerImages(hostId) {
-          if (!hostId) return;
-          const listEl = document.getElementById('imagesList');
+        async function loadGlobalImagesData(hostId) {
+          const listEl = document.getElementById('globalImagesList');
           if (listEl) {
-            listEl.innerHTML = '<div style="grid-column: 1/-1; color: var(--text-muted); font-size:13px; padding: 12px 0;">Loading Docker images...</div>';
+            listEl.innerHTML = '<div style="grid-column: 1/-1; color: var(--text-muted); font-size:13px; padding: 16px 0;">Loading Docker images...</div>';
           }
 
           try {
-            const res = await fetch(`/api/hosts/${hostId}/images`, { headers: getAuthHeaders() });
+            const url = hostId ? `/api/system/images?hostId=${encodeURIComponent(hostId)}` : '/api/system/images';
+            const res = await fetch(url, { headers: getAuthHeaders() });
             if (!res.ok) {
-              if (listEl) listEl.innerHTML = '<div style="grid-column: 1/-1; color: var(--error); font-size:13px;">Failed to load Docker images for this host.</div>';
+              if (listEl) listEl.innerHTML = '<div style="grid-column: 1/-1; color: var(--error); font-size:13px;">Failed to load Docker images.</div>';
               return;
             }
             const data = await res.json();
-            cachedImages = data.images || [];
-            const countPill = document.getElementById('imagesCountPill');
-            if (countPill) countPill.textContent = cachedImages.length;
-            renderDockerImages();
+            globalImages = data.images || [];
+            const countBadge = document.getElementById('globalImagesCountBadge');
+            if (countBadge) countBadge.textContent = globalImages.length;
+            renderGlobalImages();
           } catch (err) {
-            console.error('Error loading images:', err);
-            if (listEl) listEl.innerHTML = '<div style="grid-column: 1/-1; color: var(--error); font-size:13px;">Error communicating image status.</div>';
+            console.error('Error loading global images:', err);
+            if (listEl) listEl.innerHTML = '<div style="grid-column: 1/-1; color: var(--error); font-size:13px;">Error communicating image list.</div>';
           }
         }
 
-        function setImageFilter(filter) {
-          currentImageFilter = filter;
+        function setGlobalImageFilter(filter) {
+          globalImageFilter = filter;
           ['All', 'InUse', 'Unused'].forEach(name => {
-            const btn = document.getElementById(`imgFilter${name}`);
+            const btn = document.getElementById(`globalImgFilter${name}`);
             if (btn) btn.className = 'filter-pill-btn ' + (name.toLowerCase() === filter ? 'active' : '');
           });
-          renderDockerImages();
+          renderGlobalImages();
         }
 
-        function renderDockerImages() {
-          const listEl = document.getElementById('imagesList');
+        function renderGlobalImages() {
+          const listEl = document.getElementById('globalImagesList');
           if (!listEl) return;
 
-          const searchInput = document.getElementById('imageSearchInput');
+          const searchInput = document.getElementById('globalImageSearchInput');
           const query = (searchInput ? searchInput.value : '').trim().toLowerCase();
 
-          let filtered = cachedImages.filter(img => {
-            if (currentImageFilter === 'inuse' && !img.inUse) return false;
-            if (currentImageFilter === 'unused' && img.inUse) return false;
+          let filtered = globalImages.filter(img => {
+            if (globalImageFilter === 'inuse' && !img.inUse) return false;
+            if (globalImageFilter === 'unused' && img.inUse) return false;
 
             if (query) {
               const matchRepo = (img.repository || '').toLowerCase().includes(query);
@@ -3584,7 +3652,7 @@
               <div style="grid-column: 1/-1; color: var(--text-muted); font-size:13px; padding: 24px; background: rgba(255, 255, 255, 0.02); border: 1px dashed var(--border-color); border-radius: 8px; text-align: center;">
                 <div style="font-size: 28px; margin-bottom: 8px;">🖼️</div>
                 <div style="font-weight: 600; color: var(--text-main); margin-bottom: 4px;">No images found</div>
-                <div style="font-size: 12px;">${cachedImages.length === 0 ? 'No Docker images are currently present on this host.' : 'No images matched your current filter criteria.'}</div>
+                <div style="font-size: 12px;">${globalImages.length === 0 ? 'No Docker images are currently present on this host.' : 'No images match your search or filter.'}</div>
               </div>
             `;
             return;
@@ -3622,7 +3690,7 @@
                 <button class="btn btn-secondary font-btn" style="padding: 3px 8px; font-size: 11px;" onclick="copyImageId('${escapeHTML(img.id)}')">
                   📋 Copy ID
                 </button>
-                <button class="btn btn-danger font-btn" style="padding: 3px 10px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" onclick="promptDeleteImage('${escapeHTML(img.id)}', '${escapeHTML(repo)}:${escapeHTML(tag)}', ${Boolean(img.inUse)})">
+                <button class="btn btn-danger font-btn" style="padding: 3px 10px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" onclick="promptGlobalDeleteImage('${escapeHTML(img.id)}', '${escapeHTML(repo)}:${escapeHTML(tag)}', ${Boolean(img.inUse)})">
                   🗑️ Delete
                 </button>
               </div>
@@ -3639,12 +3707,10 @@
           });
         }
 
-        async function promptDeleteImage(imageId, displayRef, inUse) {
-          if (!selectedHost) return;
-
-          let warningMsg = `Are you sure you want to delete image "${displayRef}" (${imageId})?`;
+        async function promptGlobalDeleteImage(imageId, displayRef, inUse) {
+          let warningMsg = `Are you sure you want to delete Docker image "${displayRef}" (${imageId})?`;
           if (inUse) {
-            warningMsg = `⚠️ Notice: Image "${displayRef}" appears to be actively IN USE by one or more running containers. Removing it may fail or disrupt running services. Are you sure you want to proceed?`;
+            warningMsg = `⚠️ Notice: Image "${displayRef}" appears to be actively IN USE by one or more running containers. Removing it may fail or disrupt running services. Are you sure you want to delete it?`;
           }
 
           const confirmed = await showConfirm({
@@ -3655,15 +3721,14 @@
           });
 
           if (!confirmed) return;
-
-          deleteSingleImage(imageId, displayRef, false);
+          deleteGlobalSingleImage(imageId, displayRef, false);
         }
 
-        async function deleteSingleImage(imageId, displayRef, force = false) {
-          if (!selectedHost) return;
-
+        async function deleteGlobalSingleImage(imageId, displayRef, force = false) {
+          const hostId = globalStorageTargetHostId;
           try {
-            const res = await fetch(`/api/hosts/${selectedHost.id}/images/${imageId}${force ? '?force=true' : ''}`, {
+            const hostParam = hostId ? `?hostId=${encodeURIComponent(hostId)}${force ? '&force=true' : ''}` : (force ? '?force=true' : '');
+            const res = await fetch(`/api/system/images/${encodeURIComponent(imageId)}${hostParam}`, {
               method: 'DELETE',
               headers: getAuthHeaders()
             });
@@ -3671,21 +3736,20 @@
             const data = await res.json();
             if (res.ok) {
               showToast(`Image ${displayRef} deleted successfully.`, 'success');
-              loadDockerImages(selectedHost.id);
-              loadDiskUsage(selectedHost.id);
+              loadGlobalImagesData(hostId);
+              loadGlobalStorageData(hostId);
             } else {
               if (data.isInUse && !force) {
                 const forceConfirm = await showConfirm({
                   title: 'Force Delete Image?',
-                  message: `Docker reported: "${data.error}". The image is actively referenced or has dependent child images. Would you like to FORCE delete this image (-f)?`,
+                  message: `Docker reported: "${data.error}". The image is actively referenced or has child layers. Would you like to FORCE delete this image (-f)?`,
                   confirmText: '⚡ Force Delete Image',
                   danger: true
                 });
                 if (forceConfirm) {
-                  deleteSingleImage(imageId, displayRef, true);
+                  deleteGlobalSingleImage(imageId, displayRef, true);
                 }
               } else {
-                alert('Delete failed: ' + (data.error || 'Unknown error'));
                 showToast('Delete failed: ' + (data.error || 'Unknown error'), 'error');
               }
             }
@@ -3695,14 +3759,13 @@
           }
         }
 
-        async function pruneDockerImages(all = false) {
-          if (!selectedHost) return;
-
+        async function pruneGlobalImages(all = false) {
+          const hostId = globalStorageTargetHostId;
           const confirmed = await showConfirm({
             title: all ? 'Prune All Unused Images' : 'Prune Dangling Images',
             message: all
-              ? 'This will remove ALL Docker images not actively used by any running container. Are you sure?'
-              : 'This will remove all dangling Docker images (<none>:<none>) that have no tags or containers. Are you sure?',
+              ? 'This will remove ALL Docker images that are not actively used by any running container. Are you sure?'
+              : 'This will remove all dangling images (<none>:<none>) that have no tags. Are you sure?',
             confirmText: '🧹 Prune Images',
             danger: all
           });
@@ -3710,7 +3773,8 @@
           if (!confirmed) return;
 
           try {
-            const res = await fetch(`/api/hosts/${selectedHost.id}/images/prune${all ? '?all=true' : ''}`, {
+            const hostParam = hostId ? `?all=${all}&hostId=${encodeURIComponent(hostId)}` : `?all=${all}`;
+            const res = await fetch(`/api/system/images/prune${hostParam}`, {
               method: 'POST',
               headers: getAuthHeaders()
             });
@@ -3718,8 +3782,8 @@
             const data = await res.json();
             if (res.ok) {
               showToast(data.message || 'Prune completed.', 'success');
-              loadDockerImages(selectedHost.id);
-              loadDiskUsage(selectedHost.id);
+              loadGlobalImagesData(hostId);
+              loadGlobalStorageData(hostId);
             } else {
               showToast('Prune failed: ' + (data.error || 'Unknown error'), 'error');
             }
@@ -3729,31 +3793,31 @@
           }
         }
 
-        function toggleAutoPruneInputs() {
-          const toggle = document.getElementById('autoPruneToggle');
-          const modeSelect = document.getElementById('autoPruneMode');
+        function toggleGlobalAutoPruneInputs() {
+          const toggle = document.getElementById('globalAutoPruneToggle');
+          const modeSelect = document.getElementById('globalAutoPruneMode');
           if (modeSelect && toggle) {
             modeSelect.disabled = !toggle.checked;
           }
         }
 
-        async function saveAutoPruneSettings() {
-          if (!selectedHost) return;
-
-          const toggle = document.getElementById('autoPruneToggle');
-          const modeSelect = document.getElementById('autoPruneMode');
-          const saveBtn = document.getElementById('saveAutoPruneBtn');
+        async function saveGlobalAutoPruneSettings() {
+          const hostId = globalStorageTargetHostId;
+          const toggle = document.getElementById('globalAutoPruneToggle');
+          const modeSelect = document.getElementById('globalAutoPruneMode');
+          const saveBtn = document.getElementById('globalSaveAutoPruneBtn');
 
           if (saveBtn) saveBtn.disabled = true;
 
           try {
-            const res = await fetch(`/api/hosts/${selectedHost.id}/autoprune`, {
+            const res = await fetch('/api/system/autoprune', {
               method: 'PUT',
               headers: {
                 ...getAuthHeaders(),
                 'Content-Type': 'application/json'
               },
               body: JSON.stringify({
+                hostId: hostId,
                 enabled: toggle ? toggle.checked : false,
                 mode: modeSelect ? modeSelect.value : 'after-redeploy'
               })
@@ -3761,7 +3825,7 @@
 
             if (res.ok) {
               showToast('Auto-prune settings saved successfully.', 'success');
-              loadDiskUsage(selectedHost.id);
+              loadGlobalStorageData(hostId);
             } else {
               const err = await res.json();
               showToast('Failed to save settings: ' + (err.error || 'Unknown error'), 'error');
