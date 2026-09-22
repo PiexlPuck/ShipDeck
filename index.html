@@ -1722,8 +1722,6 @@
             <button class="btn btn-secondary font-btn" onclick="pruneGlobalImages(false)" style="padding: 5px 12px; font-size: 12px;" title="Remove dangling images (<none>:<none>)">
               🧹 Prune Dangling
             </button>
-            <button class="btn btn-danger font-btn" onclick="pruneGlobalImages(true)" style="padding: 5px 12px; font-size: 12px;" title="Remove all unused Docker images">
-              ⚠️ Prune All Unused
             <button class="btn btn-secondary font-btn" onclick="pruneGlobalImages(true)" style="padding: 5px 12px; font-size: 12px;" title="Remove all unused Docker images">
               🖼️ Prune Unused Images
             </button>
@@ -3856,8 +3854,6 @@
         function toggleGlobalAutoPruneInputs() {
           const toggle = document.getElementById('globalAutoPruneToggle');
           const modeSelect = document.getElementById('globalAutoPruneMode');
-          if (modeSelect && toggle) {
-            modeSelect.disabled = !toggle.checked;
           const scopeSelect = document.getElementById('globalAutoPruneScope');
           if (toggle) {
             if (modeSelect) modeSelect.disabled = !toggle.checked;
@@ -3884,7 +3880,6 @@
               body: JSON.stringify({
                 hostId: hostId,
                 enabled: toggle ? toggle.checked : false,
-                mode: modeSelect ? modeSelect.value : 'after-redeploy'
                 mode: modeSelect ? modeSelect.value : 'after-redeploy',
                 scope: scopeSelect ? scopeSelect.value : 'system-deep'
               })
