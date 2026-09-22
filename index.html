@@ -3493,13 +3493,13 @@
             }
           }
 
-          modal.style.display = 'flex';
+          modal.classList.add('open');
           refreshGlobalStorageModal();
         }
 
         function closeGlobalStorageModal() {
           const modal = document.getElementById('storageModalOverlay');
-          if (modal) modal.style.display = 'none';
+          if (modal) modal.classList.remove('open');
         }
 
         function onGlobalStorageHostChange(hostId) {

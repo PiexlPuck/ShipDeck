@@ -921,34 +921,51 @@ async function getHostDiskMetrics(host) {
   let filesystem = null;
 
   if (host.type === 'local') {
-    // 1. Try standard df on Linux (checks host mounts if running inside container)
+    // 1. Query real persistent host directories mounted inside the container (/app/data, /app/projects, /app, /)
+    // Never inspect /var/run because /var/run is mounted as a tmpfs (RAM-disk) in Alpine containers
     try {
+      const checkPaths = [host.projectDir, '/app/data', '/app/projects', '/app', '/'].filter(Boolean).join(' ');
       const dfLocal = await new Promise((resolve) => {
-        exec('df -Pk /var/run/docker.sock 2>/dev/null || df -Pk /app/data 2>/dev/null || df -Pk /app 2>/dev/null || df -Pk . 2>/dev/null', { timeout: 6000 }, (err, stdout) => {
+        exec(`df -Pk ${checkPaths} 2>/dev/null`, { timeout: 6000 }, (err, stdout) => {
           resolve(stdout ? stdout.trim() : '');
         });
       });
       if (dfLocal) {
         const lines = dfLocal.split('\n').map(l => l.trim()).filter(Boolean);
-        if (lines.length >= 2) {
-          const dataLine = lines[lines.length - 1];
-          const parts = dataLine.split(/\s+/);
+        let bestCandidate = null;
+        for (let i = 1; i < lines.length; i++) {
+          const parts = lines[i].split(/\s+/);
           if (parts.length >= 5) {
+            const fsDevice = (parts[0] || '').toLowerCase();
+            // Skip virtual RAM disks and memory filesystems
+            if (fsDevice.includes('tmpfs') || fsDevice.includes('devtmpfs') || fsDevice === 'shm' || fsDevice === 'none') {
+              continue;
+            }
             const totalBytes = (parseInt(parts[1], 10) || 0) * 1024;
             const usedBytes = (parseInt(parts[2], 10) || 0) * 1024;
             const availBytes = (parseInt(parts[3], 10) || 0) * 1024;
             const pct = parseInt(parts[4].replace('%', ''), 10) || (totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0);
-            filesystem = {
-              total: formatBytes(totalBytes),
-              used: formatBytes(usedBytes),
-              available: formatBytes(availBytes),
-              totalBytes,
-              usedBytes,
-              availableBytes: availBytes,
-              percentUsed: pct,
-              mount: parts[5] || '/'
-            };
+            if (totalBytes > 0) {
+              bestCandidate = {
+                total: formatBytes(totalBytes),
+                used: formatBytes(usedBytes),
+                available: formatBytes(availBytes),
+                totalBytes,
+                usedBytes,
+                availableBytes: availBytes,
+                percentUsed: pct,
+                mount: parts[5] || parts[0]
+              };
+              // Prioritize real storage mounts (/dev/... or /app/data bind mount from host)
+              if (fsDevice.startsWith('/dev/') || parts[5] === '/app/data' || parts[5] === '/app/projects') {
+                filesystem = bestCandidate;
+                break;
+              }
+            }
           }
+        }
+        if (!filesystem && bestCandidate) {
+          filesystem = bestCandidate;
         }
       }
     } catch (e) {}
@@ -980,14 +997,17 @@ async function getHostDiskMetrics(host) {
       }
     }
   } else {
-    // Remote SSH: run df -Pk
+    // Remote SSH: run df -Pk and skip tmpfs
     const dfRes = await executeHostCommand(host, `df -Pk "${host.projectDir}" 2>/dev/null || df -Pk /`, 10000);
     if (dfRes.stdout) {
       const lines = dfRes.stdout.trim().split('\n').map(l => l.trim()).filter(Boolean);
-      if (lines.length >= 2) {
-        const dataLine = lines[lines.length - 1];
-        const parts = dataLine.split(/\s+/);
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].split(/\s+/);
         if (parts.length >= 5) {
+          const fsDevice = (parts[0] || '').toLowerCase();
+          if (fsDevice.includes('tmpfs') || fsDevice.includes('devtmpfs') || fsDevice === 'shm' || fsDevice === 'none') {
+            continue;
+          }
           const totalBytes = (parseInt(parts[1], 10) || 0) * 1024;
           const usedBytes = (parseInt(parts[2], 10) || 0) * 1024;
           const availBytes = (parseInt(parts[3], 10) || 0) * 1024;
@@ -1002,6 +1022,7 @@ async function getHostDiskMetrics(host) {
             percentUsed: pct,
             mount: parts[5] || '/'
           };
+          break;
         }
       }
     }
