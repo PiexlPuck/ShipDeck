@@ -580,7 +580,6 @@
       opacity: 0;
       pointer-events: none;
       transition: all 0.3s ease;
-      z-index: 100;
       z-index: 1000;
     }
 
@@ -1691,28 +1690,6 @@
     </div>
   </div>
 
-  <!-- Custom Confirmation Dialog Modal -->
-  <div class="modal-overlay" id="confirmModal">
-    <div class="modal-container" style="width: 440px; max-width: 90vw;">
-      <div class="modal-header">
-        <h3 class="modal-title" id="confirmModalTitle" style="display: flex; align-items: center; gap: 8px;">
-          <span>⚠️</span> Confirm Action
-        </h3>
-        <button class="close-btn" onclick="closeConfirmModal(false)">&times;</button>
-      </div>
-      <div class="modal-body" style="padding: 20px;">
-        <p id="confirmModalMessage" style="font-size: 14px; line-height: 1.5; color: var(--text-main);">Are you sure you want to proceed?</p>
-      </div>
-      <div class="modal-footer">
-        <div></div>
-        <div class="flex-end">
-          <button class="btn btn-secondary" id="confirmCancelBtn" onclick="closeConfirmModal(false)">Cancel</button>
-          <button class="btn btn-danger" id="confirmOkBtn" onclick="closeConfirmModal(true)">Confirm</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- Global System Storage & Docker Images Control Center Modal -->
   <div class="modal-overlay" id="storageModalOverlay" onclick="if(event.target===this)closeGlobalStorageModal()">
     <div class="modal-container" style="width: 960px; max-width: 95vw; max-height: 90vh; display: flex; flex-direction: column;">
@@ -1747,6 +1724,11 @@
             </button>
             <button class="btn btn-danger font-btn" onclick="pruneGlobalImages(true)" style="padding: 5px 12px; font-size: 12px;" title="Remove all unused Docker images">
               ⚠️ Prune All Unused
+            <button class="btn btn-secondary font-btn" onclick="pruneGlobalImages(true)" style="padding: 5px 12px; font-size: 12px;" title="Remove all unused Docker images">
+              🖼️ Prune Unused Images
+            </button>
+            <button class="btn btn-danger font-btn" onclick="pruneGlobalSystem(true)" style="padding: 5px 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;" title="Run docker system prune -a --volumes to clean all unused containers, images, cache, and volumes">
+              🔥 Deep System Prune (--volumes)
             </button>
           </div>
         </div>
@@ -1860,6 +1842,14 @@
                 <option value="after-redeploy">After Every Redeploy (Recommended)</option>
                 <option value="daily">Daily at Midnight</option>
                 <option value="weekly">Weekly (Sundays)</option>
+              </select>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label for="globalAutoPruneScope" style="font-size: 12px; color: var(--text-muted);">Cleanup Scope:</label>
+              <select id="globalAutoPruneScope" style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 12px; color: var(--text-main); font-size: 12px;">
+                <option value="system-deep">Deep System Cleanup (docker system prune -a --volumes)</option>
+                <option value="images">Unused Images (docker image prune -a)</option>
+                <option value="dangling">Dangling Images Only (docker image prune)</option>
               </select>
             </div>
             <button class="btn btn-primary font-btn" id="globalSaveAutoPruneBtn" onclick="saveGlobalAutoPruneSettings()" style="padding: 6px 14px; font-size: 12px;">
@@ -3607,9 +3597,11 @@
             if (data.autoPrune) {
               const toggle = document.getElementById('globalAutoPruneToggle');
               const mode = document.getElementById('globalAutoPruneMode');
+              const scope = document.getElementById('globalAutoPruneScope');
               const last = document.getElementById('globalAutoPruneLastRun');
               if (toggle) toggle.checked = Boolean(data.autoPrune.enabled);
               if (mode && data.autoPrune.mode) mode.value = data.autoPrune.mode;
+              if (scope && data.autoPrune.scope) scope.value = data.autoPrune.scope;
               if (last) {
                 if (data.autoPrune.lastRun) {
                   const dt = new Date(data.autoPrune.lastRun);
@@ -3826,11 +3818,50 @@
           }
         }
 
+        async function pruneGlobalSystem(withVolumes = true) {
+          const hostId = globalStorageTargetHostId;
+          const confirmed = await showConfirm({
+            title: 'Deep System Prune (docker system prune -a --volumes)',
+            message: '⚠️ DEEP SYSTEM CLEANUP: This executes "docker system prune -a --volumes -f".\n\nIt will permanently remove:\n• All stopped containers\n• All unused networks\n• All unused Docker images (not just dangling ones)\n• All unused build cache\n• All unused local Docker volumes\n\nActive running containers and in-use volumes will not be affected. Do you want to proceed?',
+            confirmText: '🔥 Run Deep System Prune',
+            danger: true
+          });
+
+          if (!confirmed) return;
+
+          const statusEl = document.getElementById('globalStorageStatusText');
+          if (statusEl) statusEl.textContent = 'Running deep system prune (docker system prune -a --volumes)...';
+
+          try {
+            const hostParam = hostId ? `?system=true&all=true&volumes=${withVolumes}&hostId=${encodeURIComponent(hostId)}` : `?system=true&all=true&volumes=${withVolumes}`;
+            const res = await fetch(`/api/system/images/prune${hostParam}`, {
+              method: 'POST',
+              headers: getAuthHeaders()
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+              showToast(data.message || 'Deep system cleanup completed successfully.', 'success');
+              loadGlobalImagesData(hostId);
+              loadGlobalStorageData(hostId);
+            } else {
+              showToast('System prune failed: ' + (data.error || 'Unknown error'), 'error');
+            }
+          } catch (err) {
+            console.error('Error during deep system prune:', err);
+            showToast('Network error during deep system prune', 'error');
+          }
+        }
+
         function toggleGlobalAutoPruneInputs() {
           const toggle = document.getElementById('globalAutoPruneToggle');
           const modeSelect = document.getElementById('globalAutoPruneMode');
           if (modeSelect && toggle) {
             modeSelect.disabled = !toggle.checked;
+          const scopeSelect = document.getElementById('globalAutoPruneScope');
+          if (toggle) {
+            if (modeSelect) modeSelect.disabled = !toggle.checked;
+            if (scopeSelect) scopeSelect.disabled = !toggle.checked;
           }
         }
 
@@ -3838,6 +3869,7 @@
           const hostId = globalStorageTargetHostId;
           const toggle = document.getElementById('globalAutoPruneToggle');
           const modeSelect = document.getElementById('globalAutoPruneMode');
+          const scopeSelect = document.getElementById('globalAutoPruneScope');
           const saveBtn = document.getElementById('globalSaveAutoPruneBtn');
 
           if (saveBtn) saveBtn.disabled = true;
@@ -3853,6 +3885,8 @@
                 hostId: hostId,
                 enabled: toggle ? toggle.checked : false,
                 mode: modeSelect ? modeSelect.value : 'after-redeploy'
+                mode: modeSelect ? modeSelect.value : 'after-redeploy',
+                scope: scopeSelect ? scopeSelect.value : 'system-deep'
               })
             });
 

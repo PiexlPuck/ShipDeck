@@ -1253,15 +1253,29 @@ app.delete('/api/system/images/:imageId', authMiddleware, requireAdmin, async (r
 });
 
 // GLOBAL ENDPOINT: Prune Docker images
+// GLOBAL ENDPOINT: Prune Docker images and system resources
 app.post('/api/system/images/prune', authMiddleware, requireAdmin, async (req, res) => {
   const host = resolveTargetHost(req);
+  const pruneSystem = req.query.system === 'true';
+  const pruneVolumes = req.query.volumes === 'true';
   const pruneAll = req.query.all === 'true';
   const cmd = pruneAll ? 'docker image prune -a -f' : 'docker image prune -f';
 
   const result = await executeHostCommand(host, cmd, 30000);
+  let cmd = 'docker image prune -f';
+  if (pruneSystem) {
+    cmd = 'docker system prune -f';
+    if (pruneAll) cmd += ' -a';
+    if (pruneVolumes) cmd += ' --volumes';
+  } else if (pruneAll) {
+    cmd = 'docker image prune -a -f';
+  }
+
+  const result = await executeHostCommand(host, cmd, 60000);
   if (result.code !== 0) {
     return res.status(400).json({
       error: (result.stderr || result.stdout || 'Failed to prune images.').trim()
+      error: (result.stderr || result.stdout || 'Failed to execute prune command.').trim()
     });
   }
 
@@ -1270,6 +1284,7 @@ app.post('/api/system/images/prune', authMiddleware, requireAdmin, async (req, r
   if (idx !== -1) {
     hosts[idx].autoPrune = {
       ...(hosts[idx].autoPrune || { enabled: false, mode: 'after-redeploy' }),
+      ...(hosts[idx].autoPrune || { enabled: false, mode: 'after-redeploy', scope: 'images' }),
       lastRun: new Date().toISOString()
     };
     saveHosts(hosts);
@@ -1279,6 +1294,8 @@ app.post('/api/system/images/prune', authMiddleware, requireAdmin, async (req, r
     success: true,
     message: 'Images pruned successfully.',
     output: (result.stdout || 'No unused images to remove.').trim()
+    message: pruneSystem ? 'System deep cleanup completed successfully.' : 'Images pruned successfully.',
+    output: (result.stdout || 'No unused items to remove.').trim()
   });
 });
 
@@ -1286,6 +1303,7 @@ app.post('/api/system/images/prune', authMiddleware, requireAdmin, async (req, r
 app.put('/api/system/autoprune', authMiddleware, requireAdmin, (req, res) => {
   const host = resolveTargetHost(req);
   const { enabled, mode } = req.body;
+  const { enabled, mode, scope } = req.body;
 
   let hosts = getHosts();
   const idx = hosts.findIndex(h => h.id === host.id);
@@ -1293,10 +1311,13 @@ app.put('/api/system/autoprune', authMiddleware, requireAdmin, (req, res) => {
 
   const validModes = ['after-redeploy', 'daily', 'weekly'];
   const chosenMode = validModes.includes(mode) ? mode : 'after-redeploy';
+  const validScopes = ['dangling', 'images', 'system-deep'];
+  const chosenScope = validScopes.includes(scope) ? scope : 'images';
 
   hosts[idx].autoPrune = {
     enabled: Boolean(enabled),
     mode: chosenMode,
+    scope: chosenScope,
     lastRun: hosts[idx].autoPrune?.lastRun || null
   };
 
@@ -1363,10 +1384,22 @@ app.post('/api/hosts/:id/images/prune', authMiddleware, requireAdmin, async (req
   const host = hosts.find(h => h.id === id);
   if (!host) return res.status(404).json({ error: 'Host not found' });
 
+  const pruneSystem = req.query.system === 'true';
+  const pruneVolumes = req.query.volumes === 'true';
   const pruneAll = req.query.all === 'true';
   const cmd = pruneAll ? 'docker image prune -a -f' : 'docker image prune -f';
 
   const result = await executeHostCommand(host, cmd, 30000);
+  let cmd = 'docker image prune -f';
+  if (pruneSystem) {
+    cmd = 'docker system prune -f';
+    if (pruneAll) cmd += ' -a';
+    if (pruneVolumes) cmd += ' --volumes';
+  } else if (pruneAll) {
+    cmd = 'docker image prune -a -f';
+  }
+
+  const result = await executeHostCommand(host, cmd, 60000);
   if (result.code !== 0) {
     return res.status(400).json({
       error: (result.stderr || result.stdout || 'Failed to prune images.').trim()
@@ -1377,6 +1410,7 @@ app.post('/api/hosts/:id/images/prune', authMiddleware, requireAdmin, async (req
   if (idx !== -1) {
     hosts[idx].autoPrune = {
       ...(hosts[idx].autoPrune || { enabled: false, mode: 'after-redeploy' }),
+      ...(hosts[idx].autoPrune || { enabled: false, mode: 'after-redeploy', scope: 'images' }),
       lastRun: new Date().toISOString()
     };
     saveHosts(hosts);
@@ -1385,6 +1419,7 @@ app.post('/api/hosts/:id/images/prune', authMiddleware, requireAdmin, async (req
   res.json({
     success: true,
     message: 'Images pruned successfully.',
+    message: pruneSystem ? 'System deep cleanup completed successfully.' : 'Images pruned successfully.',
     output: (result.stdout || 'No unused images to remove.').trim()
   });
 });
@@ -1392,6 +1427,7 @@ app.post('/api/hosts/:id/images/prune', authMiddleware, requireAdmin, async (req
 app.put('/api/hosts/:id/autoprune', authMiddleware, requireAdmin, (req, res) => {
   const { id } = req.params;
   const { enabled, mode } = req.body;
+  const { enabled, mode, scope } = req.body;
 
   let hosts = getHosts();
   const idx = hosts.findIndex(h => h.id === id);
@@ -1399,10 +1435,13 @@ app.put('/api/hosts/:id/autoprune', authMiddleware, requireAdmin, (req, res) => 
 
   const validModes = ['after-redeploy', 'daily', 'weekly'];
   const chosenMode = validModes.includes(mode) ? mode : 'after-redeploy';
+  const validScopes = ['dangling', 'images', 'system-deep'];
+  const chosenScope = validScopes.includes(scope) ? scope : 'images';
 
   hosts[idx].autoPrune = {
     enabled: Boolean(enabled),
     mode: chosenMode,
+    scope: chosenScope,
     lastRun: hosts[idx].autoPrune?.lastRun || null
   };
 
@@ -1420,6 +1459,21 @@ function checkTriggerAutoPrune(host, emitLog = null) {
   log(`\r\n\x1b[36m[Auto-Prune] Post-redeploy cleanup triggered: running 'docker image prune -f'...\x1b[0m\r\n`);
 
   executeHostCommand(host, 'docker image prune -f', 30000).then(({ stdout, stderr, code }) => {
+  const scope = host.autoPrune.scope || 'images';
+  let cmd = 'docker image prune -f';
+  let desc = "dangling images ('docker image prune -f')";
+
+  if (scope === 'system-deep') {
+    cmd = 'docker system prune -a --volumes -f';
+    desc = "full system cleanup ('docker system prune -a --volumes -f')";
+  } else if (scope === 'images') {
+    cmd = 'docker image prune -a -f';
+    desc = "unused images ('docker image prune -a -f')";
+  }
+
+  log(`\r\n\x1b[36m[Auto-Prune] Cleanup triggered: running ${desc}...\x1b[0m\r\n`);
+
+  executeHostCommand(host, cmd, 60000).then(({ stdout, stderr, code }) => {
     if (code === 0) {
       log(`\x1b[32m[Auto-Prune] Completed successfully:\x1b[0m\r\n${(stdout || 'Clean.').trim()}\r\n`);
       const allHosts = getHosts();
