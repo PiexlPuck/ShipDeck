@@ -2086,6 +2086,8 @@ wss.on('connection', (ws, request) => {
   const action = urlObj.searchParams.get('action');
   const hostId = urlObj.searchParams.get('hostId');
   const container = urlObj.searchParams.get('container') || '';
+  const keepEnvParam = urlObj.searchParams.get('keepEnv');
+  const keepEnv = (keepEnvParam === null || keepEnvParam === '' || keepEnvParam === 'true');
 
   if (!action || !hostId) {
     ws.send('\r\n\x1b[31mError: Missing parameters action or hostId.\x1b[0m\r\n');
@@ -2141,6 +2143,29 @@ wss.on('connection', (ws, request) => {
 
   // Determine commands to execute based on host action
   let commandStr = '';
+  const isRefreshAction = (action === 'refresh' || action === 'force-refresh');
+  let localEnvBackup = null;
+
+  if (isRefreshAction && host.type === 'local') {
+    const envPath = resolveEnvPath(host.projectDir);
+    if (fs.existsSync(envPath)) {
+      try {
+        const stat = fs.statSync(envPath);
+        if (!stat.isDirectory()) {
+          if (keepEnv) {
+            localEnvBackup = fs.readFileSync(envPath, 'utf8');
+            emitLog(`\x1b[36m[Shipdeck] .env file detected. Preserving current environment configuration in memory...\x1b[0m\r\n`);
+          } else {
+            fs.unlinkSync(envPath);
+            emitLog(`\x1b[33m[Shipdeck] Discarding existing .env file as requested...\x1b[0m\r\n`);
+          }
+        }
+      } catch (e) {
+        emitLog(`\x1b[33m[Shipdeck] Notice on .env file: ${e.message}\x1b[0m\r\n`);
+      }
+    }
+  }
+
   if (action === 'pull' || action === 'force-pull') {
     const targetBranch = host.branch || 'main';
     const isForce = (action === 'force-pull');
@@ -2164,6 +2189,31 @@ wss.on('connection', (ws, request) => {
       } else {
         commandStr = `git fetch origin 2>/dev/null; (git checkout "${targetBranch}" || git checkout -b "${targetBranch}" "origin/${targetBranch}") 2>/dev/null; git pull origin "${targetBranch}"`;
       }
+    }
+  } else if (isRefreshAction) {
+    const targetBranch = host.branch || 'main';
+    if (host.type === 'local') {
+      const gitDir = path.join(host.projectDir, '.git');
+      const isCloneRequired = host.gitUrl && !fs.existsSync(gitDir);
+      const gitUrlFormatted = formatGitUrl(host.gitUrl);
+      if (!fs.existsSync(host.projectDir)) {
+        fs.mkdirSync(host.projectDir, { recursive: true });
+      }
+      if (isCloneRequired) {
+        commandStr = `git clone -b "${targetBranch}" "${gitUrlFormatted}" .`;
+      } else {
+        const cmds = [];
+        if (host.gitUrl) {
+          cmds.push(`git remote set-url origin "${gitUrlFormatted}"`);
+        }
+        cmds.push(`git fetch origin "${targetBranch}" --prune`);
+        cmds.push(`git checkout -B "${targetBranch}" "origin/${targetBranch}"`);
+        cmds.push(`git reset --hard "origin/${targetBranch}"`);
+        cmds.push(`git clean -fdx`);
+        commandStr = cmds.join(' && ');
+      }
+    } else {
+      commandStr = `refresh repository branch '${targetBranch}'`;
     }
   } else if (action === 'redeploy' || action === 'force-redeploy') {
     if (action === 'force-redeploy') {
@@ -2216,6 +2266,23 @@ wss.on('connection', (ws, request) => {
 
     p.on('close', (code) => {
       const exitCode = typeof code === 'number' ? code : 1;
+      if (isRefreshAction && host.type === 'local') {
+        const envPath = resolveEnvPath(host.projectDir);
+        if (localEnvBackup !== null) {
+          try {
+            fs.writeFileSync(envPath, localEnvBackup, 'utf8');
+            emitLog(`\x1b[32m[Shipdeck] Restored preserved .env file successfully.\x1b[0m\r\n`);
+          } catch (e) {
+            emitLog(`\x1b[31m[Shipdeck] Error restoring .env file: ${e.message}\x1b[0m\r\n`);
+          }
+        } else if (!keepEnv && fs.existsSync(envPath)) {
+          try {
+            fs.unlinkSync(envPath);
+            emitLog(`\x1b[33m[Shipdeck] .env file discarded.\x1b[0m\r\n`);
+          } catch (e) { }
+        }
+      }
+
       if (exitCode === 0) {
         emitLog(`\r\n\x1b[32m=== Command completed successfully (exit code 0) ===\x1b[0m\r\n`);
         if ((action === 'redeploy' || action === 'force-redeploy') && host.autoPrune && host.autoPrune.enabled && host.autoPrune.mode === 'after-redeploy') {
@@ -2248,7 +2315,26 @@ wss.on('connection', (ws, request) => {
     conn.on('ready', () => {
       emitLog(`\x1b[32mSSH Connection established. Spawning session...\x1b[0m\r\n`);
       let fullRemoteCommand = '';
-      if ((action === 'pull' || action === 'force-pull') && host.gitUrl) {
+      if (isRefreshAction) {
+        const gitUrlFormatted = formatGitUrl(host.gitUrl);
+        const branch = host.branch || 'main';
+        const randId = Math.floor(Math.random() * 1000000);
+        const tmpEnv = `/tmp/.shipdeck_env_${randId}`;
+        const setRemoteOrigin = host.gitUrl ? `git remote set-url origin "${gitUrlFormatted}" 2>/dev/null || true; ` : '';
+        const cloneOrFetch = `( [ -d .git ] && ( ${setRemoteOrigin}git fetch origin "${branch}" --prune 2>/dev/null || git fetch origin 2>/dev/null; git checkout -B "${branch}" "origin/${branch}" && git reset --hard "origin/${branch}" && git clean -fdx ) || ( [ -n "${gitUrlFormatted}" ] && git clone -b "${branch}" "${gitUrlFormatted}" . ) )`;
+
+        if (keepEnv) {
+          fullRemoteCommand = `mkdir -p "${host.projectDir}" && cd "${host.projectDir}" && ` +
+            `([ -f .env ] && cp .env "${tmpEnv}" 2>/dev/null && echo "[Shipdeck] Backed up .env configuration" || true) && ` +
+            `${cloneOrFetch} && ` +
+            `([ -f "${tmpEnv}" ] && cp "${tmpEnv}" .env 2>/dev/null && rm -f "${tmpEnv}" 2>/dev/null && echo "[Shipdeck] Restored preserved .env file successfully" || true)`;
+        } else {
+          fullRemoteCommand = `mkdir -p "${host.projectDir}" && cd "${host.projectDir}" && ` +
+            `rm -f .env 2>/dev/null && ` +
+            `${cloneOrFetch} && ` +
+            `rm -f .env 2>/dev/null && echo "[Shipdeck] Clean branch '${branch}' checked out. .env discarded."`;
+        }
+      } else if ((action === 'pull' || action === 'force-pull') && host.gitUrl) {
         const gitUrlFormatted = formatGitUrl(host.gitUrl);
         const branch = host.branch || 'main';
         if (action === 'force-pull') {

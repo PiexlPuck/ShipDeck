@@ -499,11 +499,53 @@
 
     .action-row {
       display: flex;
+      flex-wrap: wrap;
+      align-items: stretch;
       gap: 12px;
-      background: rgba(255, 255, 255, 0.02);
-      padding: 16px;
+      background: rgba(15, 23, 42, 0.45);
+      padding: 14px 16px;
       border-radius: 12px;
       border: 1px solid var(--border-color);
+    }
+
+    .action-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 10px;
+      padding: 10px 14px;
+      flex: 1 1 auto;
+      min-width: 180px;
+    }
+
+    .action-group-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+    }
+
+    .action-group-buttons {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .action-group.danger-theme {
+      background: rgba(239, 68, 68, 0.05);
+      border-color: rgba(239, 68, 68, 0.25);
+    }
+
+    .action-group.danger-theme .action-group-label {
+      color: #f87171;
     }
 
     /* Terminal Wrapper */
@@ -588,12 +630,14 @@
       pointer-events: all;
     }
 
-    /* Confirmation Modal & Popups must always layer on top of any active modal overlay */
-    #confirmModal {
+    /* Confirmation Modal, Repo Refresh Modal & Popups must always layer on top of any active modal overlay */
+    #confirmModal,
+    #repoRefreshModal {
       z-index: 2500;
     }
 
-    #confirmModal .modal-container {
+    #confirmModal .modal-container,
+    #repoRefreshModal .modal-container {
       z-index: 2501;
       box-shadow: 0 25px 70px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.15);
     }
@@ -1392,42 +1436,69 @@
           </button>
         </div>
 
-        <div class="action-row" style="flex-wrap: wrap;">
-          <button class="btn btn-secondary" id="gitPullBtn" onclick="runAction('pull')">
-            ☁️ Git Pull
-          </button>
-          <button class="btn btn-primary" id="redeployBtn" onclick="runAction('redeploy')">
-            🚀 Redeploy All
-          </button>
-          <button class="btn btn-secondary" id="redeployAppBtn" onclick="runAction('redeploy-app')"
-            title="Rebuild and restart web/app containers without touching database services">
-            🔄 Redeploy App (Skip DB)
-          </button>
-          <button class="btn btn-success" id="startBtn" onclick="runAction('start')">
-            ▶️ Start
-          </button>
-          <button class="btn btn-danger" id="stopBtn" onclick="runAction('stop')">
-            ⏹️ Stop
-          </button>
-          <button class="btn btn-secondary" id="logsBtn" onclick="runAction('logs')">
-            📝 View Logs
-          </button>
-          <!-- .env file viewer button -->
-          <button class="btn btn-secondary" id="manageEnvBtn" onclick="viewEnvFile()" style="display: none;">
-            📝 Manage .env
-          </button>
-          <!-- .env.example viewer button -->
-          <button class="btn btn-secondary" id="manageEnvExampleBtn" onclick="viewEnvExampleFile()" style="display: none;">
-            📋 .env.example
-          </button>
-          <!-- compose file viewer button -->
-          <button class="btn btn-secondary" id="manageComposeBtn" onclick="viewComposeFile()" style="display: none;">
-            🐳 Manage Compose
-          </button>
-          <!-- Force Action Button (Visible ONLY when an action fails) -->
-          <button class="btn btn-danger btn-force-highlight" id="forceActionBtn" onclick="runForceAction()" style="display: none;" title="Force execution of failed action">
-            ⚡ Force Action
-          </button>
+        <div class="action-row" id="hostActionRow">
+          <!-- Deploy & Sync Group -->
+          <div class="action-group" id="deployActionGroup">
+            <span class="action-group-label">🚀 Deploy & Sync</span>
+            <div class="action-group-buttons">
+              <button class="btn btn-primary" id="redeployBtn" onclick="runAction('redeploy')">
+                🚀 Redeploy All
+              </button>
+              <button class="btn btn-secondary" id="redeployAppBtn" onclick="runAction('redeploy-app')"
+                title="Rebuild and restart web/app containers without touching database services">
+                🔄 Redeploy App (Skip DB)
+              </button>
+              <button class="btn btn-secondary" id="gitPullBtn" onclick="runAction('pull')">
+                ☁️ Git Pull
+              </button>
+              <button class="btn btn-secondary" id="repoRefreshBtn" onclick="promptRepoRefresh()"
+                title="Fetch and cleanly replace repository files with a fresh copy of the target branch">
+                🌱 Repo Refresh
+              </button>
+            </div>
+          </div>
+
+          <!-- Services Group -->
+          <div class="action-group" id="servicesActionGroup">
+            <span class="action-group-label">⚡ Container Services</span>
+            <div class="action-group-buttons">
+              <button class="btn btn-success" id="startBtn" onclick="runAction('start')">
+                ▶️ Start
+              </button>
+              <button class="btn btn-danger" id="stopBtn" onclick="runAction('stop')">
+                ⏹️ Stop
+              </button>
+              <button class="btn btn-secondary" id="logsBtn" onclick="runAction('logs')">
+                📝 View Logs
+              </button>
+            </div>
+          </div>
+
+          <!-- Configuration Group -->
+          <div class="action-group" id="configActionGroup" style="display: none;">
+            <span class="action-group-label">⚙️ Configuration</span>
+            <div class="action-group-buttons">
+              <button class="btn btn-secondary" id="manageEnvBtn" onclick="viewEnvFile()" style="display: none;">
+                📝 Manage .env
+              </button>
+              <button class="btn btn-secondary" id="manageEnvExampleBtn" onclick="viewEnvExampleFile()" style="display: none;">
+                📋 .env.example
+              </button>
+              <button class="btn btn-secondary" id="manageComposeBtn" onclick="viewComposeFile()" style="display: none;">
+                🐳 Manage Compose
+              </button>
+            </div>
+          </div>
+
+          <!-- Recovery Group -->
+          <div class="action-group danger-theme" id="forceActionGroup" style="display: none;">
+            <span class="action-group-label">⚠️ Recovery</span>
+            <div class="action-group-buttons">
+              <button class="btn btn-danger btn-force-highlight" id="forceActionBtn" onclick="runForceAction()" style="display: none;" title="Force execution of failed action">
+                ⚡ Force Action
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Deployed Containers List Panel -->
@@ -1884,6 +1955,48 @@
         <div class="flex-end">
           <button class="btn btn-secondary" id="confirmCancelBtn" onclick="closeConfirmModal(false)">Cancel</button>
           <button class="btn btn-danger" id="confirmOkBtn" onclick="closeConfirmModal(true)">Confirm</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Repo Refresh Confirmation Modal -->
+  <div class="modal-overlay" id="repoRefreshModal">
+    <div class="modal-container" style="width: 500px; max-width: 92vw;">
+      <div class="modal-header">
+        <h3 class="modal-title" style="display: flex; align-items: center; gap: 8px;">
+          <span>🌱</span> Refresh Repository
+        </h3>
+        <button class="close-btn" onclick="closeRepoRefreshModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+        <div style="font-size: 13.5px; color: var(--text-main); line-height: 1.5;">
+          This will fetch origin and reset <span id="refreshModalHost" style="font-weight: 600; color: var(--text-main);">this host</span> to a <strong>fresh, clean copy</strong> of branch 
+          <span id="refreshModalBranch" style="font-family: 'Fira Code', monospace; color: var(--accent-color); font-weight: 600;">main</span>.
+        </div>
+
+        <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px;">
+          <label style="display: flex; align-items: flex-start; gap: 12px; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="refreshKeepEnvCheckbox" checked onchange="updateRefreshModalButton()" 
+              style="width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent-color); cursor: pointer;">
+            <div>
+              <div style="font-weight: 600; font-size: 13px; color: var(--text-main);">Keep existing .env file</div>
+              <div id="refreshEnvHelpText" style="font-size: 12px; color: var(--text-muted); margin-top: 3px; line-height: 1.4;">
+                Safely preserves and restores your current environment variables after replacing repository files.
+              </div>
+            </div>
+          </label>
+        </div>
+
+        <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 8px; padding: 12px; font-size: 12px; color: #fca5a5; line-height: 1.5;">
+          ⚠️ <strong>Notice:</strong> All other local code edits, uncommitted changes, and untracked files will be permanently discarded and reset to match the remote branch.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div></div>
+        <div class="flex-end" style="gap: 10px;">
+          <button class="btn btn-secondary" onclick="closeRepoRefreshModal()">Cancel</button>
+          <button class="btn btn-primary" id="confirmRefreshBtn" onclick="executeRepoRefresh()">🌱 Refresh (Keep .env)</button>
         </div>
       </div>
     </div>
@@ -2615,11 +2728,14 @@
           const envBtn = document.getElementById('manageEnvBtn');
           const envExampleBtn = document.getElementById('manageEnvExampleBtn');
           const composeBtn = document.getElementById('manageComposeBtn');
+          const configGroup = document.getElementById('configActionGroup');
           if (envPerm !== 'none') {
+            if (configGroup) configGroup.style.display = 'flex';
             envBtn.style.display = 'inline-flex';
             if (envExampleBtn) envExampleBtn.style.display = 'inline-flex';
             composeBtn.style.display = 'inline-flex';
           } else {
+            if (configGroup) configGroup.style.display = 'none';
             envBtn.style.display = 'none';
             if (envExampleBtn) envExampleBtn.style.display = 'none';
             composeBtn.style.display = 'none';
@@ -2693,7 +2809,9 @@
         function hideForceButtons() {
           const forceBtn = document.getElementById('forceActionBtn');
           const termForceBtn = document.getElementById('termForceBtn');
+          const forceGroup = document.getElementById('forceActionGroup');
           if (forceBtn) forceBtn.style.display = 'none';
+          if (forceGroup) forceGroup.style.display = 'none';
           if (termForceBtn) termForceBtn.style.display = 'none';
           failedActionType = null;
         }
@@ -2701,6 +2819,7 @@
         function showForceButtons(action) {
           const forceBtn = document.getElementById('forceActionBtn');
           const termForceBtn = document.getElementById('termForceBtn');
+          const forceGroup = document.getElementById('forceActionGroup');
           failedActionType = action;
 
           let forceLabel = '⚡ Force Action';
@@ -2709,6 +2828,9 @@
           if (action === 'pull' || action === 'force-pull') {
             forceLabel = '⚡ Force Git Pull';
             forceTitle = 'Discard local conflicting changes and force pull latest remote branch';
+          } else if (action === 'refresh' || action === 'force-refresh') {
+            forceLabel = '⚡ Force Repo Refresh';
+            forceTitle = 'Force clean reset and checkout of remote branch';
           } else if (action.includes('redeploy')) {
             forceLabel = '⚡ Force Redeploy';
             forceTitle = 'Purge orphans and rebuild all images without cache (--no-cache --force-recreate)';
@@ -2721,6 +2843,9 @@
             forceBtn.textContent = forceLabel;
             forceBtn.title = forceTitle;
             forceBtn.style.display = 'inline-flex';
+          }
+          if (forceGroup) {
+            forceGroup.style.display = 'flex';
           }
           if (termForceBtn) {
             termForceBtn.textContent = forceLabel;
@@ -2742,6 +2867,8 @@
             });
             if (!confirmed) return;
             runAction('force-pull');
+          } else if (failedActionType === 'refresh' || failedActionType === 'force-refresh') {
+            promptRepoRefresh(true);
           } else if (failedActionType.includes('redeploy')) {
             const confirmed = await showConfirm({
               title: 'Force Redeploy',
@@ -2756,8 +2883,67 @@
           }
         }
 
+        // Repo Refresh Modal Handlers
+        let isForceRefreshPending = false;
+
+        function promptRepoRefresh(isForce = false) {
+          if (!selectedHost) {
+            showToast('Please select an environment first.', 'warning');
+            return;
+          }
+          isForceRefreshPending = isForce;
+          const branchName = selectedHost.branch || 'main';
+          const branchEl = document.getElementById('refreshModalBranch');
+          const hostEl = document.getElementById('refreshModalHost');
+          if (branchEl) branchEl.textContent = branchName;
+          if (hostEl) hostEl.textContent = selectedHost.name;
+
+          const checkbox = document.getElementById('refreshKeepEnvCheckbox');
+          if (checkbox) checkbox.checked = true;
+          updateRefreshModalButton();
+
+          const modal = document.getElementById('repoRefreshModal');
+          if (modal) modal.classList.add('open');
+        }
+
+        function closeRepoRefreshModal() {
+          const modal = document.getElementById('repoRefreshModal');
+          if (modal) modal.classList.remove('open');
+          isForceRefreshPending = false;
+        }
+
+        function updateRefreshModalButton() {
+          const checkbox = document.getElementById('refreshKeepEnvCheckbox');
+          const btn = document.getElementById('confirmRefreshBtn');
+          const helpText = document.getElementById('refreshEnvHelpText');
+          const keepEnv = checkbox ? checkbox.checked : true;
+
+          if (btn) {
+            if (keepEnv) {
+              btn.className = 'btn btn-primary';
+              btn.textContent = '🌱 Refresh (Keep .env)';
+            } else {
+              btn.className = 'btn btn-danger';
+              btn.textContent = '⚠️ Refresh (Discard .env)';
+            }
+          }
+          if (helpText) {
+            helpText.textContent = keepEnv
+              ? 'Safely preserves and restores your current environment variables after replacing repository files.'
+              : '⚠️ Your current .env file will be permanently deleted along with uncommitted changes.';
+          }
+        }
+
+        function executeRepoRefresh() {
+          const checkbox = document.getElementById('refreshKeepEnvCheckbox');
+          const keepEnv = checkbox ? checkbox.checked : true;
+          const actionToRun = isForceRefreshPending ? 'force-refresh' : 'refresh';
+          closeRepoRefreshModal();
+          runAction(actionToRun, '', { keepEnv });
+        }
+
         // Executed Action
-        function runAction(action, containerName = '') {
+        function runAction(action, containerName = '', extraParams = {}) {
           if (!selectedHost) return;
 
           hideForceButtons();
@@ -2783,6 +2969,8 @@
           const btnMap = {
             'pull': 'gitPullBtn',
             'force-pull': 'forceActionBtn',
+            'refresh': 'repoRefreshBtn',
+            'force-refresh': 'forceActionBtn',
             'redeploy': 'redeployBtn',
             'force-redeploy': 'forceActionBtn',
             'redeploy-app': 'redeployAppBtn',
@@ -2812,13 +3000,17 @@
             customSimQuery = `&simUser=${encodeURIComponent(usernameVal)}&simRole=${encodeURIComponent(userRole)}`;
           }
 
+          let extraQuery = '';
+          if (extraParams && extraParams.keepEnv !== undefined) {
+            extraQuery += `&keepEnv=${extraParams.keepEnv ? 'true' : 'false'}`;
+          }
+
           const containerParam = containerName ? `&container=${encodeURIComponent(containerName)}` : '';
-          const wsUrl = `${protocol}//${window.location.host}/api/stream?action=${action}&hostId=${selectedHost.id}${containerParam}${customSimQuery}`;
+          const wsUrl = `${protocol}//${window.location.host}/api/stream?action=${action}&hostId=${selectedHost.id}${containerParam}${customSimQuery}${extraQuery}`;
 
           wsConn = new WebSocket(wsUrl);
 
           wsConn.onmessage = (event) => {
-            term.write(event.data);
             const raw = event.data;
             try {
               if (raw.startsWith('{') && raw.includes('__shipdeck_event')) {
@@ -2863,6 +3055,9 @@
                 termStatus.textContent = `Finished: ${action.toUpperCase()}`;
               }
               hideForceButtons();
+              if (action === 'refresh' || action === 'force-refresh') {
+                showToast(`Repository refreshed cleanly to branch '${selectedHost.branch || 'main'}'.`, 'success');
+              }
             }
             if (termStatus) {
               termStatus.textContent = `Finished: ${action.toUpperCase()}`;
@@ -2907,6 +3102,8 @@
 
         function toggleButtons(disabled) {
           document.getElementById('gitPullBtn').disabled = disabled;
+          const refreshBtn = document.getElementById('repoRefreshBtn');
+          if (refreshBtn) refreshBtn.disabled = disabled;
           document.getElementById('redeployBtn').disabled = disabled;
           const appBtn = document.getElementById('redeployAppBtn');
           if (appBtn) appBtn.disabled = disabled;
