@@ -630,14 +630,16 @@
       pointer-events: all;
     }
 
-    /* Confirmation Modal, Repo Refresh Modal & Popups must always layer on top of any active modal overlay */
+    /* Confirmation Modal, Repo Refresh Modal, Redeploy Update Modal & Popups must always layer on top of any active modal overlay */
     #confirmModal,
-    #repoRefreshModal {
+    #repoRefreshModal,
+    #redeployUpdateModal {
       z-index: 2500;
     }
 
     #confirmModal .modal-container,
-    #repoRefreshModal .modal-container {
+    #repoRefreshModal .modal-container,
+    #redeployUpdateModal .modal-container {
       z-index: 2501;
       box-shadow: 0 25px 70px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.15);
     }
@@ -2002,6 +2004,50 @@
     </div>
   </div>
 
+  <!-- Redeploy Update Available Modal -->
+  <div class="modal-overlay" id="redeployUpdateModal">
+    <div class="modal-container" style="width: 500px; max-width: 92vw;">
+      <div class="modal-header">
+        <h3 class="modal-title" style="display: flex; align-items: center; gap: 8px;">
+          <span>🔔</span> Update Available on Branch
+        </h3>
+        <button class="close-btn" onclick="closeRedeployUpdateModal('cancel')">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+        <div style="font-size: 13.5px; color: var(--text-main); line-height: 1.5;">
+          A newer version was detected on remote branch <strong id="redeployModalBranch" style="color: var(--accent-color); font-family: 'Fira Code', monospace;">main</strong>.
+        </div>
+
+        <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 14px; font-size: 12.5px; display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: var(--text-muted);">Current Local Commit:</span>
+            <code id="redeployModalCurrentCommit" style="background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px;">Unknown</code>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: var(--text-muted);">Latest Remote Commit:</span>
+            <code id="redeployModalRemoteCommit" style="background: rgba(16, 185, 129, 0.15); color: #10b981; padding: 2px 6px; border-radius: 4px;">Latest</code>
+          </div>
+          <div id="redeployModalSubject" style="font-size: 12px; color: var(--text-muted); font-style: italic; border-top: 1px solid var(--border-color); padding-top: 6px; display: none;"></div>
+        </div>
+
+        <div style="font-size: 13px; color: var(--text-muted); line-height: 1.5;">
+          Would you like to pull the latest changes before redeploying, or proceed with current local files?
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeRedeployUpdateModal('cancel')">Cancel</button>
+        <div class="flex-end" style="gap: 8px;">
+          <button class="btn btn-secondary" onclick="closeRedeployUpdateModal('redeploy-only')" title="Redeploy using existing local files without pulling">
+            🚀 Redeploy Without Pull
+          </button>
+          <button class="btn btn-primary" onclick="closeRedeployUpdateModal('pull-and-redeploy')" title="Pull latest changes from remote branch then redeploy">
+            ☁️ Pull & Redeploy
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification Container -->
   <div class="toast-container" id="toastContainer"></div>
 
@@ -2942,9 +2988,135 @@
           runAction(actionToRun, '', { keepEnv });
         }
 
+        // Redeploy Update Detection & Prompt Handling
+        let pendingRedeployAction = null;
+        let pendingRedeployContainer = '';
+        let pendingRedeployExtra = {};
+
+        async function checkUpdatesBeforeRedeploy(action, containerName = '', extraParams = {}) {
+          if (!selectedHost) return;
+
+          const btnId = action === 'redeploy-app' ? 'redeployAppBtn' : 'redeployBtn';
+          const btn = document.getElementById(btnId);
+          let origHtml = '';
+          if (btn) {
+            origHtml = btn.innerHTML;
+            btn.innerHTML = `<span class="btn-spinner"></span> Checking updates...`;
+            btn.disabled = true;
+          }
+
+          let updateData = null;
+          try {
+            const ctrl = new AbortController();
+            const timeoutId = setTimeout(() => ctrl.abort(), 4500);
+            const res = await fetch(`/api/hosts/${selectedHost.id}/git-status`, {
+              headers: getAuthHeaders(),
+              signal: ctrl.signal
+            });
+            clearTimeout(timeoutId);
+            if (res.ok) {
+              updateData = await res.json();
+            }
+          } catch (e) {
+            console.warn('Git status check before redeploy skipped/timed out:', e);
+          } finally {
+            if (btn && origHtml) {
+              btn.innerHTML = origHtml;
+              btn.disabled = false;
+            }
+          }
+
+          if (updateData) {
+            activeChangelog = updateData.changelog || [];
+            const badge = document.getElementById('updateBadge');
+            const hashInfo = document.getElementById('commitHashInfo');
+            if (updateData.currentCommit && hashInfo) {
+              hashInfo.textContent = `Commit: ${updateData.currentCommit} (${updateData.branch || 'main'})`;
+            }
+            if (badge) {
+              if (updateData.hasUpdate) {
+                badge.style.background = 'rgba(239, 68, 68, 0.15)';
+                badge.style.color = '#f87171';
+                badge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                badge.style.cursor = 'pointer';
+                badge.onclick = () => runAction('pull');
+                badge.innerHTML = `🔔 Update Available (${updateData.remoteCommit}) - Click Git Pull`;
+              } else {
+                badge.style.background = 'rgba(16, 185, 129, 0.15)';
+                badge.style.color = '#10b981';
+                badge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                badge.style.cursor = 'default';
+                badge.onclick = null;
+                badge.innerHTML = `🟢 Up to date`;
+              }
+            }
+          }
+
+          if (updateData && updateData.hasUpdate) {
+            pendingRedeployAction = action;
+            pendingRedeployContainer = containerName;
+            pendingRedeployExtra = extraParams;
+
+            const branchEl = document.getElementById('redeployModalBranch');
+            const curEl = document.getElementById('redeployModalCurrentCommit');
+            const remEl = document.getElementById('redeployModalRemoteCommit');
+            const subjEl = document.getElementById('redeployModalSubject');
+
+            if (branchEl) branchEl.textContent = updateData.branch || selectedHost.branch || 'main';
+            if (curEl) curEl.textContent = updateData.currentCommit || 'Unknown';
+            if (remEl) remEl.textContent = updateData.remoteCommit || 'Latest';
+
+            if (subjEl) {
+              if (updateData.changelog && updateData.changelog.length > 0) {
+                const latestLog = updateData.changelog[0];
+                subjEl.textContent = `Latest commit: "${latestLog.subject}" (${latestLog.author || ''})`;
+                subjEl.style.display = 'block';
+              } else {
+                subjEl.style.display = 'none';
+              }
+            }
+
+            const modal = document.getElementById('redeployUpdateModal');
+            if (modal) modal.classList.add('open');
+          } else {
+            // No update detected or check was offline/skipped - proceed directly with redeployment
+            runAction(action, containerName, { ...extraParams, skipUpdateCheck: true });
+          }
+        }
+
+        function closeRedeployUpdateModal(decision) {
+          const modal = document.getElementById('redeployUpdateModal');
+          if (modal) modal.classList.remove('open');
+
+          if (decision === 'pull-and-redeploy') {
+            const act = pendingRedeployAction || 'redeploy';
+            pendingRedeployAction = null;
+            pendingRedeployContainer = '';
+            pendingRedeployExtra = {};
+            runAction('pull', '', { nextAction: act });
+          } else if (decision === 'redeploy-only') {
+            const act = pendingRedeployAction || 'redeploy';
+            const cont = pendingRedeployContainer || '';
+            const extra = pendingRedeployExtra || {};
+            pendingRedeployAction = null;
+            pendingRedeployContainer = '';
+            pendingRedeployExtra = {};
+            runAction(act, cont, { ...extra, skipUpdateCheck: true });
+          } else {
+            pendingRedeployAction = null;
+            pendingRedeployContainer = '';
+            pendingRedeployExtra = {};
+          }
+        }
+
         // Executed Action
         function runAction(action, containerName = '', extraParams = {}) {
           if (!selectedHost) return;
+
+          if ((action === 'redeploy' || action === 'redeploy-app') && !extraParams.skipUpdateCheck) {
+            checkUpdatesBeforeRedeploy(action, containerName, extraParams);
+            return;
+          }
 
           hideForceButtons();
           lastActionExitCode = null;
@@ -3055,6 +3227,23 @@
                 termStatus.textContent = `Finished: ${action.toUpperCase()}`;
               }
               hideForceButtons();
+
+              if (extraParams && extraParams.nextAction) {
+                const nextAct = extraParams.nextAction;
+                term.write(`\r\n\x1b[32m✔ Git pull complete. Automatically proceeding to ${nextAct.toUpperCase()}...\x1b[0m\r\n\r\n`);
+                if (activeActionButton && originalButtonHtml) {
+                  activeActionButton.innerHTML = originalButtonHtml;
+                  activeActionButton = null;
+                  originalButtonHtml = '';
+                }
+                toggleButtons(false);
+                wsConn = null;
+                setTimeout(() => {
+                  runAction(nextAct, '', { skipUpdateCheck: true });
+                }, 400);
+                return;
+              }
+
               if (action === 'refresh' || action === 'force-refresh') {
                 showToast(`Repository refreshed cleanly to branch '${selectedHost.branch || 'main'}'.`, 'success');
               }
