@@ -715,6 +715,164 @@ app.get('/api/hosts/:id/git-status', authMiddleware, (req, res) => {
   }
 });
 
+// Parse branch names from git ls-remote or git branch output
+function parseBranchList(rawOutput) {
+  const branches = new Set();
+  const lines = (rawOutput || '').split('\n').map(l => l.trim()).filter(Boolean);
+
+  for (const line of lines) {
+    // 1. Matches git ls-remote: "<hash>\trefs/heads/<branch>"
+    const lsRemoteMatch = line.match(/refs\/heads\/(.+)$/);
+    if (lsRemoteMatch) {
+      branches.add(lsRemoteMatch[1].trim());
+      continue;
+    }
+
+    // 2. Matches git branch -a or %(refname:short)
+    if (line.includes('->')) continue;
+    let clean = line.replace(/^[\*\+\s]+/, '').trim();
+    clean = clean.replace(/^(remotes\/)?origin\//, '').trim();
+    if (clean && clean !== 'HEAD' && !clean.includes(' ')) {
+      branches.add(clean);
+    }
+  }
+
+  // Sort with main and master prioritized at top, followed by alphabetical
+  return Array.from(branches).sort((a, b) => {
+    if (a === 'main' || a === 'master') return -1;
+    if (b === 'main' || b === 'master') return 1;
+    return a.localeCompare(b);
+  });
+}
+
+function queryLocalDirBranches(dir, res, finish) {
+  const gitDir = path.join(dir, '.git');
+  if (!fs.existsSync(gitDir)) {
+    return res.json({ success: false, error: 'Project directory is not a Git repository', branches: ['main'] });
+  }
+  exec('git ls-remote --heads origin 2>/dev/null || git branch -a --format="%(refname:short)"', { cwd: dir, timeout: 8000 }, (err, stdout) => {
+    if (!err && stdout && stdout.trim()) {
+      const branches = parseBranchList(stdout);
+      if (branches.length > 0) {
+        return finish(branches, 'local-repo');
+      }
+    }
+    exec('git branch --format="%(refname:short)"', { cwd: dir, timeout: 4000 }, (err2, stdout2) => {
+      const branches = (!err2 && stdout2) ? parseBranchList(stdout2) : ['main'];
+      return finish(branches, 'local-branches');
+    });
+  });
+}
+
+function queryRemoteHostBranches(ip, port, user, keyPath, projectDir, gitUrl, res, finish) {
+  const conn = new Client();
+  conn.on('ready', () => {
+    let remoteCmd = '';
+    if (projectDir) {
+      remoteCmd = `cd "${projectDir}" 2>/dev/null && (git ls-remote --heads origin 2>/dev/null || git branch -a --format="%(refname:short)" 2>/dev/null || git branch --format="%(refname:short)" 2>/dev/null)`;
+    } else if (gitUrl) {
+      remoteCmd = `git ls-remote --heads "${gitUrl}" 2>/dev/null`;
+    }
+
+    if (!remoteCmd) {
+      conn.end();
+      return res.json({ success: false, error: 'Cannot query branches without project directory or Git URL', branches: ['main'] });
+    }
+
+    conn.exec(remoteCmd, (err, stream) => {
+      if (err) {
+        conn.end();
+        return res.json({ success: false, error: err.message, branches: ['main'] });
+      }
+      let output = '';
+      stream.on('data', d => output += d).on('close', () => {
+        conn.end();
+        const branches = parseBranchList(output);
+        return finish(branches, 'remote-ssh');
+      });
+    });
+  }).on('error', (err) => {
+    res.json({ success: false, error: `SSH connection failed: ${err.message}`, branches: ['main'] });
+  }).connect({
+    host: ip,
+    port: port || 22,
+    username: user,
+    privateKey: fs.existsSync(keyPath) ? fs.readFileSync(keyPath) : keyPath,
+    readyTimeout: 6000
+  });
+}
+
+function handleQueryBranches(req, res) {
+  const body = req.method === 'POST' ? req.body : req.query;
+  const { hostId, gitUrl, projectDir, type, ip, port, user, sshKeyPath } = body || {};
+  const hosts = getHosts();
+  const existingHost = (hostId || req.params.id) ? hosts.find(h => h.id === (hostId || req.params.id)) : null;
+
+  const targetType = type || (existingHost ? existingHost.type : 'local');
+  const targetGitUrl = gitUrl !== undefined ? gitUrl : (existingHost ? existingHost.gitUrl : '');
+  const targetProjectDir = projectDir !== undefined ? projectDir : (existingHost ? existingHost.projectDir : '');
+  const targetIp = ip || (existingHost ? existingHost.ip : '');
+  const targetPort = port || (existingHost ? existingHost.port : 22);
+  const targetUser = user || (existingHost ? existingHost.user : '');
+  const targetSshKeyPath = sshKeyPath || (existingHost ? existingHost.sshKeyPath : '');
+
+  const finish = (branches, source = 'remote') => {
+    const list = branches && branches.length > 0 ? branches : ['main'];
+    return res.json({
+      success: true,
+      branches: list,
+      count: list.length,
+      source
+    });
+  };
+
+  // 1. If Git URL is provided, try git ls-remote
+  if (targetGitUrl && targetGitUrl.trim()) {
+    const formattedUrl = formatGitUrl(targetGitUrl.trim());
+    exec(`git ls-remote --heads "${formattedUrl}"`, { timeout: 8000 }, (err, stdout) => {
+      if (!err && stdout && stdout.trim()) {
+        const branches = parseBranchList(stdout);
+        if (branches.length > 0) {
+          return finish(branches, 'git-remote-url');
+        }
+      }
+
+      // If local git ls-remote failed and this is a remote SSH host, attempt remote query
+      if (targetType === 'remote' && targetIp && targetUser) {
+        return queryRemoteHostBranches(targetIp, targetPort, targetUser, targetSshKeyPath, targetProjectDir, formattedUrl, res, finish);
+      }
+
+      // If this is a local host with an existing project directory, fall back to local dir
+      if (targetProjectDir && fs.existsSync(targetProjectDir)) {
+        return queryLocalDirBranches(targetProjectDir, res, finish);
+      }
+
+      return res.json({
+        success: false,
+        error: err ? err.message : 'No branches returned from Git URL',
+        branches: ['main']
+      });
+    });
+    return;
+  }
+
+  // 2. No Git URL provided: check project directory
+  if (targetType === 'local') {
+    if (targetProjectDir && fs.existsSync(targetProjectDir)) {
+      return queryLocalDirBranches(targetProjectDir, res, finish);
+    }
+    return res.json({ success: false, error: 'Project directory not found and no Git URL specified', branches: ['main'] });
+  } else {
+    if (targetIp && targetUser) {
+      return queryRemoteHostBranches(targetIp, targetPort, targetUser, targetSshKeyPath, targetProjectDir, '', res, finish);
+    }
+    return res.json({ success: false, error: 'Incomplete host details for branch query', branches: ['main'] });
+  }
+}
+
+app.post('/api/git/branches', authMiddleware, requireAdmin, handleQueryBranches);
+app.get('/api/hosts/:id/branches', authMiddleware, requireAdmin, handleQueryBranches);
+
 // Get Deployed docker compose containers list
 app.get('/api/hosts/:id/containers', authMiddleware, (req, res) => {
   const { id } = req.params;

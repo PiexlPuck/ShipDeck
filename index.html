@@ -820,6 +820,48 @@
       font-weight: 500;
     }
 
+    .branch-dropdown-menu {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      z-index: 1050;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .branch-dropdown-item {
+      padding: 8px 12px;
+      font-size: 12.5px;
+      font-family: 'Fira Code', monospace;
+      color: var(--text-main);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .branch-dropdown-item:hover,
+    .branch-dropdown-item.active {
+      background: rgba(59, 130, 246, 0.15);
+      color: #93c5fd;
+    }
+
+    .branch-dropdown-item .badge-current {
+      margin-left: auto;
+      font-size: 10px;
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-family: 'Inter', sans-serif;
+    }
+
     .form-row .form-group {
       flex: 1;
     }
@@ -1674,14 +1716,31 @@
         </div>
 
         <div class="form-row">
-          <div class="form-group">
+          <div class="form-group" style="flex: 1;">
             <label for="hostGitUrl">Git Repository URL (Optional)</label>
             <input type="text" id="hostGitUrl" class="form-input"
-              placeholder="e.g. https://github.com/user/docker-project.git">
+              placeholder="e.g. https://github.com/user/docker-project.git" onchange="autoQueryBranchesIfApplicable()">
           </div>
-          <div class="form-group" style="flex: 0 0 160px;">
-            <label for="hostBranch">Target Deploy Branch / Ref</label>
-            <input type="text" id="hostBranch" class="form-input" placeholder="e.g. main, production">
+          <div class="form-group" style="flex: 1; min-width: 220px; position: relative;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <label for="hostBranch" style="margin-bottom: 0;">Target Deploy Branch</label>
+              <button type="button" class="btn btn-secondary" id="fetchBranchesBtn" onclick="queryRepoBranches()"
+                style="padding: 2px 8px; font-size: 11px; height: 22px; display: inline-flex; align-items: center; gap: 4px;"
+                title="Query repository for available branches">
+                <span id="fetchBranchesIcon">🔄</span> Query Branches
+              </button>
+            </div>
+            <div style="position: relative; display: flex; align-items: center;">
+              <input type="text" id="hostBranch" class="form-input" list="branchDatalist" placeholder="e.g. main, dev..."
+                autocomplete="off" style="width: 100%; padding-right: 32px;" oninput="filterBranchDropdown(this.value)" onfocus="showBranchDropdown()">
+              <button type="button" id="branchDropdownToggle" onclick="toggleBranchDropdown(event)"
+                style="position: absolute; right: 8px; background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; font-size: 10px; line-height: 1;"
+                title="Show branch list">▼</button>
+              <datalist id="branchDatalist"></datalist>
+            </div>
+            <!-- Custom dropdown menu for rich display of branches and status -->
+            <div id="branchDropdownMenu" class="branch-dropdown-menu" style="display: none;"></div>
+            <div id="branchQueryStatus" style="font-size: 11px; color: var(--text-muted); margin-top: 4px; min-height: 14px;"></div>
           </div>
         </div>
       </div>
@@ -2291,7 +2350,7 @@
           triggerText.textContent = foundLabel;
         }
 
-        // Window global clicks listener to dismiss select popups
+        // Window global clicks listener to dismiss select popups and branch dropdowns
         window.addEventListener('click', (e) => {
           if (!e.target.closest('.custom-select-container')) {
             document.querySelectorAll('.custom-select-options').forEach(menu => {
@@ -2300,6 +2359,15 @@
             document.querySelectorAll('.custom-select-trigger').forEach(trig => {
               trig.classList.remove('active');
             });
+          }
+
+          const branchMenu = document.getElementById('branchDropdownMenu');
+          const branchInput = document.getElementById('hostBranch');
+          const branchToggle = document.getElementById('branchDropdownToggle');
+          if (branchMenu && branchMenu.style.display !== 'none') {
+            if (!branchMenu.contains(e.target) && e.target !== branchInput && e.target !== branchToggle) {
+              branchMenu.style.display = 'none';
+            }
           }
         });
 
@@ -3305,6 +3373,206 @@
           if (termForceBtn) termForceBtn.disabled = disabled;
         }
 
+        // Branch Populator & Dropdown Management
+        let cachedBranches = [];
+        let isBranchQuerying = false;
+
+        function setBranchQueryStatus(msg, type = 'info') {
+          const status = document.getElementById('branchQueryStatus');
+          if (!status) return;
+          status.textContent = msg;
+          if (type === 'error') {
+            status.style.color = '#f87171';
+          } else if (type === 'success') {
+            status.style.color = '#34d399';
+          } else if (type === 'warning') {
+            status.style.color = '#fbbf24';
+          } else {
+            status.style.color = 'var(--text-muted)';
+          }
+        }
+
+        function clearBranchDropdown() {
+          cachedBranches = [];
+          const datalist = document.getElementById('branchDatalist');
+          if (datalist) datalist.innerHTML = '';
+          const menu = document.getElementById('branchDropdownMenu');
+          if (menu) {
+            menu.innerHTML = '';
+            menu.style.display = 'none';
+          }
+          setBranchQueryStatus('');
+        }
+
+        function populateBranchDatalist(branches) {
+          const datalist = document.getElementById('branchDatalist');
+          if (!datalist) return;
+          datalist.innerHTML = branches.map(b => `<option value="${escapeHTML(b)}"></option>`).join('');
+        }
+
+        function renderBranchDropdown(filter = '') {
+          const menu = document.getElementById('branchDropdownMenu');
+          if (!menu) return;
+
+          const currentVal = (document.getElementById('hostBranch').value || '').trim();
+          const q = (filter || '').trim().toLowerCase();
+          const filtered = cachedBranches.filter(b => !q || b.toLowerCase().includes(q));
+
+          if (filtered.length === 0) {
+            if (cachedBranches.length === 0) {
+              menu.innerHTML = `
+                <div style="padding: 10px 12px; font-size: 12px; color: var(--text-muted); text-align: center;">
+                  No branches queried yet.<br>
+                  <button type="button" class="btn btn-secondary" onclick="queryRepoBranches()" style="margin-top: 6px; padding: 2px 8px; font-size: 11px;">
+                    🔄 Query Repository
+                  </button>
+                </div>
+              `;
+            } else {
+              menu.innerHTML = `
+                <div style="padding: 10px 12px; font-size: 12px; color: var(--text-muted);">
+                  No matching branches for "<strong>${escapeHTML(filter)}</strong>".<br>
+                  <span style="font-size: 11px; color: var(--text-muted);">You can still press Save to deploy with this branch name.</span>
+                </div>
+              `;
+            }
+            return;
+          }
+
+          menu.innerHTML = filtered.map(b => {
+            const isSelected = b.toLowerCase() === currentVal.toLowerCase();
+            return `
+              <div class="branch-dropdown-item ${isSelected ? 'active' : ''}" onclick="selectBranch('${escapeHTML(b)}')">
+                <span>🌿</span>
+                <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(b)}</span>
+                ${isSelected ? '<span class="badge-current">Selected</span>' : ''}
+              </div>
+            `;
+          }).join('');
+        }
+
+        function showBranchDropdown() {
+          if (cachedBranches.length > 0) {
+            renderBranchDropdown(document.getElementById('hostBranch').value);
+            const menu = document.getElementById('branchDropdownMenu');
+            if (menu) menu.style.display = 'block';
+          }
+        }
+
+        function toggleBranchDropdown(e) {
+          if (e) e.stopPropagation();
+          const menu = document.getElementById('branchDropdownMenu');
+          if (!menu) return;
+
+          if (menu.style.display !== 'none') {
+            menu.style.display = 'none';
+          } else {
+            if (cachedBranches.length === 0) {
+              queryRepoBranches();
+            } else {
+              renderBranchDropdown(document.getElementById('hostBranch').value);
+              menu.style.display = 'block';
+            }
+          }
+        }
+
+        function filterBranchDropdown(val) {
+          renderBranchDropdown(val);
+          const menu = document.getElementById('branchDropdownMenu');
+          if (menu) {
+            if (cachedBranches.length > 0) {
+              menu.style.display = 'block';
+            }
+          }
+        }
+
+        function selectBranch(branchName) {
+          const input = document.getElementById('hostBranch');
+          if (input) {
+            input.value = branchName;
+          }
+          const menu = document.getElementById('branchDropdownMenu');
+          if (menu) menu.style.display = 'none';
+          setBranchQueryStatus(`Selected branch: ${branchName}`, 'success');
+        }
+
+        function autoQueryBranchesIfApplicable() {
+          const gitUrl = (document.getElementById('hostGitUrl').value || '').trim();
+          if (gitUrl && (gitUrl.includes('http') || gitUrl.includes('git@') || gitUrl.includes('.git'))) {
+            queryRepoBranches(true);
+          }
+        }
+
+        async function queryRepoBranches(silent = false) {
+          if (isBranchQuerying) return;
+
+          const hostId = document.getElementById('hostFormId').value;
+          const gitUrl = document.getElementById('hostGitUrl').value.trim();
+          const projectDir = document.getElementById('hostProjectDir').value.trim();
+          const type = document.getElementById('hostType').value;
+          const ip = document.getElementById('hostIp').value.trim();
+          const port = document.getElementById('hostPort').value.trim();
+          const user = document.getElementById('hostUser').value.trim();
+          const sshKeyPath = document.getElementById('hostKeyPath').value.trim();
+
+          if (!gitUrl && !projectDir) {
+            if (!silent) {
+              setBranchQueryStatus('Please provide a Git URL or Project Dir to query branches', 'warning');
+            }
+            return;
+          }
+
+          isBranchQuerying = true;
+          const btn = document.getElementById('fetchBranchesBtn');
+          const icon = document.getElementById('fetchBranchesIcon');
+          if (btn) btn.disabled = true;
+          if (icon) icon.innerHTML = '<span class="btn-spinner"></span>';
+          setBranchQueryStatus('Querying repository branches...', 'info');
+
+          try {
+            const res = await fetch('/api/git/branches', {
+              method: 'POST',
+              headers: {
+                ...getAuthHeaders(),
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                hostId,
+                gitUrl,
+                projectDir,
+                type,
+                ip,
+                port: port ? parseInt(port, 10) : 22,
+                user,
+                sshKeyPath
+              })
+            });
+
+            const data = await res.json();
+            if (data.success && Array.isArray(data.branches) && data.branches.length > 0) {
+              cachedBranches = data.branches;
+              populateBranchDatalist(cachedBranches);
+              renderBranchDropdown(document.getElementById('hostBranch').value);
+              const count = cachedBranches.length;
+              const preview = cachedBranches.slice(0, 3).join(', ') + (count > 3 ? '...' : '');
+              setBranchQueryStatus(`🌿 Found ${count} branch${count > 1 ? 'es' : ''} (${preview})`, 'success');
+              if (!silent) {
+                const menu = document.getElementById('branchDropdownMenu');
+                if (menu) menu.style.display = 'block';
+              }
+            } else {
+              const errMsg = data.error || 'No remote branches found';
+              setBranchQueryStatus(`⚠️ ${errMsg} (type manually to search/specify)`, 'warning');
+            }
+          } catch (e) {
+            setBranchQueryStatus(`⚠️ Query failed: ${e.message}`, 'error');
+          } finally {
+            isBranchQuerying = false;
+            if (btn) btn.disabled = false;
+            if (icon) icon.textContent = '🔄';
+          }
+        }
+
         // Modal Control Box
         function openHostModal() {
           if (userRole !== 'admin') {
@@ -3312,6 +3580,8 @@
             showToast('Permission denied. Admin role required.', 'error');
             return;
           }
+
+          clearBranchDropdown();
 
           document.getElementById('hostFormId').value = '';
           document.getElementById('hostName').value = '';
@@ -3352,12 +3622,18 @@
           const host = hosts.find(h => h.id === id);
           if (!host) return;
 
+          clearBranchDropdown();
+
           document.getElementById('hostFormId').value = host.id;
           document.getElementById('hostName').value = host.name;
           document.getElementById('hostType').value = host.type;
           document.getElementById('hostAllowedRole').value = host.allowedRole || 'admin';
           document.getElementById('hostGitUrl').value = host.gitUrl || '';
           document.getElementById('hostBranch').value = host.branch || 'main';
+
+          if (host.gitUrl || host.projectDir) {
+            queryRepoBranches(true);
+          }
 
           // Populate env matrix overrides
           const defaultEnv = (host.envPermissions && host.envPermissions.default) ? host.envPermissions.default : 'none';
